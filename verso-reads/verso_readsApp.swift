@@ -12,6 +12,18 @@ struct verso_readsApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    configureWindow()
+                }
         }
+        .windowStyle(.hiddenTitleBar)
+    }
+
+    private func configureWindow() {
+        guard let window = NSApplication.shared.windows.first else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = .clear
     }
 }
