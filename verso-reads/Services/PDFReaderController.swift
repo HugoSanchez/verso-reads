@@ -11,9 +11,59 @@ import PDFKit
 final class PDFReaderController: ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
     weak var pdfView: PDFView?
+    private var preferredScaleFactor: CGFloat?
+    private var preferredScaleFactorExpiresAt: Date?
 
     func attach(pdfView: PDFView) {
         self.pdfView = pdfView
+    }
+
+    func capturePreferredScaleFactor() {
+        guard let pdfView else { return }
+        preferredScaleFactor = pdfView.scaleFactor
+        preferredScaleFactorExpiresAt = Date().addingTimeInterval(0.35)
+    }
+
+    func resetPreferredScaleFactor() {
+        preferredScaleFactor = nil
+        preferredScaleFactorExpiresAt = nil
+    }
+
+    func applyPreferredScaleFactorIfNeeded(availableWidth: CGFloat) {
+        if let preferredScaleFactorExpiresAt, Date() > preferredScaleFactorExpiresAt {
+            resetPreferredScaleFactor()
+            return
+        }
+        guard let pdfView, let preferredScaleFactor else { return }
+        guard let fitWidthScale = fitWidthScaleFactor(for: pdfView, availableWidth: availableWidth) else { return }
+
+        let clamped = min(preferredScaleFactor, fitWidthScale)
+        pdfView.autoScales = false
+
+        if abs(pdfView.scaleFactor - clamped) > 0.0001 {
+            pdfView.scaleFactor = clamped
+        }
+    }
+
+    func currentScaleFactor() -> CGFloat? {
+        pdfView?.scaleFactor
+    }
+
+    func setScaleFactor(_ scaleFactor: CGFloat) {
+        guard let pdfView else { return }
+        resetPreferredScaleFactor()
+        pdfView.autoScales = false
+        pdfView.scaleFactor = scaleFactor
+    }
+
+    func zoomToActualSize() {
+        setScaleFactor(1.0)
+    }
+
+    func zoomToFitWidth(availableWidth: CGFloat) {
+        guard let pdfView else { return }
+        guard let scaleFactor = fitWidthScaleFactor(for: pdfView, availableWidth: availableWidth) else { return }
+        setScaleFactor(scaleFactor)
     }
 
     func clearSelection() {
@@ -60,5 +110,19 @@ final class PDFReaderController: ObservableObject {
 
         guard fragments.isEmpty == false else { return nil }
         return (PDFHighlightAnchor(fragments: fragments), quote)
+    }
+
+    private func fitWidthScaleFactor(for pdfView: PDFView, availableWidth: CGFloat) -> CGFloat? {
+        guard let document = pdfView.document else { return nil }
+        let page = pdfView.currentPage ?? document.page(at: 0)
+        guard let page else { return nil }
+
+        let pageBounds = page.bounds(for: .mediaBox)
+        guard pageBounds.width > 0 else { return nil }
+
+        let scrollWidth = pdfView.enclosingScrollView?.contentView.bounds.width ?? availableWidth
+        let safeWidth = max(0, scrollWidth - 2)
+        guard safeWidth > 0 else { return nil }
+        return safeWidth / pageBounds.width
     }
 }

@@ -10,6 +10,7 @@ struct PDFKitView: NSViewRepresentable {
     let document: PDFDocument
     let highlights: [Annotation]
     let controller: PDFReaderController
+    let availableWidth: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -36,6 +37,8 @@ struct PDFKitView: NSViewRepresentable {
         if nsView.document !== document {
             nsView.document = document
             context.coordinator.reset()
+            nsView.autoScales = true
+            controller.resetPreferredScaleFactor()
         }
         nsView.pageShadowsEnabled = false
         hideScrollbars(in: nsView)
@@ -43,6 +46,7 @@ struct PDFKitView: NSViewRepresentable {
             hideScrollbars(in: nsView)
         }
         controller.attach(pdfView: nsView)
+        controller.applyPreferredScaleFactorIfNeeded(availableWidth: availableWidth)
         context.coordinator.sync(highlights: highlights, in: nsView)
     }
 
@@ -131,6 +135,6 @@ struct PDFKitView: NSViewRepresentable {
 }
 
 #Preview {
-    PDFKitView(document: PDFDocument(), highlights: [], controller: PDFReaderController())
+    PDFKitView(document: PDFDocument(), highlights: [], controller: PDFReaderController(), availableWidth: 800)
         .frame(width: 600, height: 400)
 }

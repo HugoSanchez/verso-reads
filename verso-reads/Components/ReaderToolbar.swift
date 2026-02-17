@@ -7,16 +7,28 @@ import SwiftUI
 
 struct ReaderToolbar: View {
     let title: String
+    let isTitleEditable: Bool
+    let onTitleCommit: (String) -> Void
     @Binding var isRightPanelVisible: Bool
     @Binding var highlightColor: HighlightColor
     let onHighlight: (HighlightColor) -> Void
+    let onRightPanelToggle: (Bool) -> Void
+    let isZoomEnabled: Bool
+    let currentZoomPercent: () -> Double
+    let onApplyZoomPercent: (Double) -> Void
+    let onZoomToFitWidth: () -> Void
+    let onZoomToActualSize: () -> Void
+
+    @State private var isEditingTitle = false
+    @State private var draftTitle = ""
+    @FocusState private var isTitleFocused: Bool
+    @State private var isZoomPopoverPresented = false
+    @State private var zoomPercent: Double = 100
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.85))
+                titleView
 
                 Spacer()
 
@@ -39,17 +51,32 @@ struct ReaderToolbar: View {
                         Image(systemName: "highlighter")
                             .foregroundStyle(highlightColor.swatch.opacity(0.95))
                     }
-                    Button(action: {}) {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                    Button(action: {}) {
-                        Text("AA")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    Button(action: toggleRightPanel) {
-                        Image(systemName: "sidebar.right")
-                            .foregroundStyle(isRightPanelVisible ? Color.accentColor : Color.black.opacity(0.4))
-                    }
+	                    Button(action: {}) {
+	                        Image(systemName: "square.and.arrow.down")
+	                    }
+	                    Button {
+	                        isZoomPopoverPresented.toggle()
+	                    } label: {
+	                        Text("AA")
+	                            .font(.system(size: 13, weight: .medium))
+	                    }
+	                    .disabled(isZoomEnabled == false)
+	                    .popover(isPresented: $isZoomPopoverPresented, arrowEdge: .top) {
+	                        ReaderZoomPopover(
+	                            zoomPercent: $zoomPercent,
+	                            isEnabled: isZoomEnabled,
+	                            zoomRange: 25...400,
+	                            zoomStep: 10,
+	                            onApplyZoomPercent: onApplyZoomPercent,
+	                            onFitWidth: onZoomToFitWidth,
+	                            onActualSize: onZoomToActualSize,
+	                            onSyncZoomPercent: currentZoomPercent
+	                        )
+	                    }
+	                    Button(action: toggleRightPanel) {
+	                        Image(systemName: "sidebar.right")
+	                            .foregroundStyle(isRightPanelVisible ? Color.accentColor : Color.black.opacity(0.4))
+	                    }
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 14))
@@ -65,21 +92,80 @@ struct ReaderToolbar: View {
                 .frame(height: 1)
                 .padding(.horizontal, 24)
         }
+        .onChange(of: title) { _, newValue in
+            if isEditingTitle == false {
+                draftTitle = newValue
+            }
+        }
+    }
+
+    private var titleView: some View {
+        Group {
+            if isEditingTitle && isTitleEditable {
+                TextField("", text: $draftTitle)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.85))
+                    .focused($isTitleFocused)
+                    .onSubmit { commitTitleEdit() }
+                    .onExitCommand { cancelTitleEdit() }
+                    .frame(maxWidth: 260, alignment: .leading)
+            } else {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.85))
+                    .onTapGesture {
+                        guard isTitleEditable else { return }
+                        beginTitleEdit()
+                    }
+            }
+        }
+    }
+
+    private func beginTitleEdit() {
+        draftTitle = title
+        isEditingTitle = true
+        isTitleFocused = true
+    }
+
+    private func cancelTitleEdit() {
+        isEditingTitle = false
+        draftTitle = title
+    }
+
+    private func commitTitleEdit() {
+        let trimmed = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            cancelTitleEdit()
+            return
+        }
+        isEditingTitle = false
+        onTitleCommit(trimmed)
     }
 
     private func toggleRightPanel() {
+        let newValue = !isRightPanelVisible
+        onRightPanelToggle(newValue)
         withAnimation(.easeInOut(duration: 0.2)) {
-            isRightPanelVisible.toggle()
+            isRightPanelVisible = newValue
         }
     }
 }
 
 #Preview {
-    ReaderToolbar(
-        title: "New reading",
-        isRightPanelVisible: .constant(false),
-        highlightColor: .constant(.yellow),
-        onHighlight: { _ in }
-    )
-    .background(Color.white)
-}
+	    ReaderToolbar(
+	        title: "New reading",
+	        isTitleEditable: true,
+	        onTitleCommit: { _ in },
+	        isRightPanelVisible: .constant(false),
+	        highlightColor: .constant(.yellow),
+	        onHighlight: { _ in },
+	        onRightPanelToggle: { _ in },
+	        isZoomEnabled: true,
+	        currentZoomPercent: { 100 },
+	        onApplyZoomPercent: { _ in },
+	        onZoomToFitWidth: {},
+	        onZoomToActualSize: {}
+	    )
+	    .background(Color.white)
+	}

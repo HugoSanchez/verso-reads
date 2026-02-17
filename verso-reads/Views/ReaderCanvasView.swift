@@ -18,25 +18,55 @@ struct ReaderCanvasView: View {
     @StateObject private var pdfController = PDFReaderController()
     @State private var highlights: [Annotation] = []
     @State private var highlightColor: HighlightColor = .yellow
+    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
             ReaderToolbar(
                 title: readerTitle,
+                isTitleEditable: activeDocument != nil,
+                onTitleCommit: renameActiveDocument,
                 isRightPanelVisible: $isRightPanelVisible,
                 highlightColor: $highlightColor,
-                onHighlight: { addHighlight(color: $0) }
+                onHighlight: { addHighlight(color: $0) },
+                onRightPanelToggle: { newValue in
+                    if newValue {
+                        pdfController.capturePreferredScaleFactor()
+                    }
+                },
+                isZoomEnabled: pdfDocument != nil,
+                currentZoomPercent: {
+                    Double(pdfController.currentScaleFactor() ?? 1.0) * 100
+                },
+                onApplyZoomPercent: { percent in
+                    pdfController.setScaleFactor(CGFloat(percent / 100))
+                },
+                onZoomToFitWidth: {
+                    pdfController.zoomToFitWidth(availableWidth: availableWidth)
+                },
+                onZoomToActualSize: {
+                    pdfController.zoomToActualSize()
+                }
             )
 
             // Content area (will show document or empty state)
             Group {
                 if let pdfDocument {
-                    PDFKitView(
-                        document: pdfDocument,
-                        highlights: highlights,
-                        controller: pdfController
-                    )
-                        .background(Color.white)
+                    GeometryReader { proxy in
+                        PDFKitView(
+                            document: pdfDocument,
+                            highlights: highlights,
+                            controller: pdfController,
+                            availableWidth: proxy.size.width
+                        )
+                        .onAppear {
+                            availableWidth = proxy.size.width
+                        }
+                        .onChange(of: proxy.size.width) { _, newValue in
+                            availableWidth = newValue
+                        }
+                    }
+                    .background(Color.white)
                 } else {
                     EmptyReaderState(onOpen: openPDF, onDrop: handleDrop)
                 }
@@ -85,6 +115,18 @@ struct ReaderCanvasView: View {
             print("Failed to import PDF: \(error)")
             activeDocument = nil
             pdfDocument = PDFDocument(url: url)
+        }
+    }
+
+    private func renameActiveDocument(to newTitle: String) {
+        guard let activeDocument else { return }
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return }
+        activeDocument.title = trimmed
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to rename document: \(error)")
         }
     }
 
