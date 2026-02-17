@@ -6,12 +6,14 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct verso_readsApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .modelContainer(for: [LibraryDocument.self, Annotation.self])
                 .onAppear {
                     configureWindow()
                 }

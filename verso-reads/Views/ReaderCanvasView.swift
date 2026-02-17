@@ -4,67 +4,139 @@
 //
 
 import SwiftUI
+import PDFKit
+import SwiftData
+import UniformTypeIdentifiers
 
 struct ReaderCanvasView: View {
+    @Environment(\.modelContext) private var modelContext
+
     @Binding var isRightPanelVisible: Bool
+    @Binding var activeDocument: LibraryDocument?
+    @Binding var pdfDocument: PDFDocument?
+
+    @StateObject private var pdfController = PDFReaderController()
+    @State private var highlights: [Annotation] = []
+    @State private var highlightColor: HighlightColor = .yellow
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("New reading")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.85))
-                Spacer()
-                HStack(spacing: 16) {
-                    Button(action: {}) {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                    Button(action: {}) {
-                        Text("AA")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            isRightPanelVisible.toggle()
-                        }
-                    }) {
-                        Image(systemName: "sidebar.right")
-                            .foregroundStyle(isRightPanelVisible ? Color.accentColor : Color.black.opacity(0.4))
-                    }
+            ReaderToolbar(
+                title: readerTitle,
+                isRightPanelVisible: $isRightPanelVisible,
+                highlightColor: $highlightColor,
+                onHighlight: { addHighlight(color: $0) }
+            )
+
+            // Content area (will show document or empty state)
+            Group {
+                if let pdfDocument {
+                    PDFKitView(
+                        document: pdfDocument,
+                        highlights: highlights,
+                        controller: pdfController
+                    )
+                        .background(Color.white)
+                } else {
+                    EmptyReaderState(onOpen: openPDF, onDrop: handleDrop)
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 14))
-                .foregroundStyle(Color.black.opacity(0.4))
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 20)
-            .padding(.bottom, 16)
+        }
+        .onAppear {
+            loadHighlights()
+        }
+        .onChange(of: activeDocument?.id) { _, _ in
+            loadHighlights()
+        }
+    }
 
-            // Subtle separator line
-            Rectangle()
-                .fill(Color.black.opacity(0.06))
-                .frame(height: 1)
-                .padding(.horizontal, 24)
+    private var readerTitle: String {
+        if let activeDocument {
+            return activeDocument.title
+        }
 
-            // Empty state
-            VStack(spacing: 14) {
-                Image(systemName: "doc.text")
-                    .font(.system(size: 42, weight: .thin))
-                    .foregroundStyle(Color.black.opacity(0.3))
-                Text("Drop a document to start reading")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.85))
-                Text("We will keep your place, highlights, and notes in sync.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Color.black.opacity(0.45))
+        guard let url = pdfDocument?.documentURL else { return "New reading" }
+        return url.deletingPathExtension().lastPathComponent
+    }
+
+    private func openPDF() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.pdf]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            importAndOpenPDF(from: url)
+        }
+    }
+
+    private func handleDrop(url: URL) {
+        importAndOpenPDF(from: url)
+    }
+
+    private func importAndOpenPDF(from url: URL) {
+        do {
+            let document = try LibraryStore.importDocument(from: url, modelContext: modelContext)
+            let storedURL = try LibraryStore.fileURL(for: document)
+            activeDocument = document
+            pdfDocument = PDFDocument(url: storedURL)
+            loadHighlights()
+        } catch {
+            print("Failed to import PDF: \(error)")
+            activeDocument = nil
+            pdfDocument = PDFDocument(url: url)
+        }
+    }
+
+    private func loadHighlights() {
+        guard let documentID = activeDocument?.id else {
+            highlights = []
+            return
+        }
+
+        do {
+            let predicate = #Predicate<Annotation> { annotation in
+                annotation.documentID == documentID && annotation.kindRawValue == "highlight"
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            var descriptor = FetchDescriptor<Annotation>(predicate: predicate)
+            descriptor.sortBy = [SortDescriptor(\Annotation.createdAt, order: .forward)]
+            highlights = try modelContext.fetch(descriptor)
+        } catch {
+            print("Failed to load highlights: \(error)")
+            highlights = []
+        }
+    }
+
+    private func addHighlight(color: HighlightColor) {
+        guard let documentID = activeDocument?.id else { return }
+        guard let result = pdfController.makeHighlightAnchorFromSelection() else { return }
+
+        do {
+            let data = try JSONEncoder().encode(result.anchor)
+            let annotation = Annotation(
+                documentID: documentID,
+                kind: .highlight,
+                anchorData: data,
+                quote: result.quote,
+                colorRawValue: color.rawValue
+            )
+            modelContext.insert(annotation)
+            try modelContext.save()
+            highlights.append(annotation)
+            pdfController.clearSelection()
+        } catch {
+            print("Failed to save highlight: \(error)")
         }
     }
 }
 
 #Preview {
-    ReaderCanvasView(isRightPanelVisible: .constant(false))
-        .frame(width: 800, height: 600)
+    ReaderCanvasView(
+        isRightPanelVisible: .constant(false),
+        activeDocument: .constant(nil),
+        pdfDocument: .constant(nil)
+    )
+    .modelContainer(for: [LibraryDocument.self, Annotation.self], inMemory: true)
+    .frame(width: 800, height: 600)
+    .background(Color.white)
 }
