@@ -16,8 +16,6 @@ struct ReaderToolbar: View {
     let isZoomEnabled: Bool
     let currentZoomPercent: () -> Double
     let onApplyZoomPercent: (Double) -> Void
-    let onZoomToFitWidth: () -> Void
-    let onZoomToActualSize: () -> Void
 
     @State private var isEditingTitle = false
     @State private var draftTitle = ""
@@ -51,32 +49,30 @@ struct ReaderToolbar: View {
                         Image(systemName: "highlighter")
                             .foregroundStyle(highlightColor.swatch.opacity(0.95))
                     }
-	                    Button(action: {}) {
-	                        Image(systemName: "square.and.arrow.down")
-	                    }
-	                    Button {
-	                        isZoomPopoverPresented.toggle()
-	                    } label: {
-	                        Text("AA")
-	                            .font(.system(size: 13, weight: .medium))
-	                    }
-	                    .disabled(isZoomEnabled == false)
-	                    .popover(isPresented: $isZoomPopoverPresented, arrowEdge: .top) {
-	                        ReaderZoomPopover(
-	                            zoomPercent: $zoomPercent,
-	                            isEnabled: isZoomEnabled,
-	                            zoomRange: 25...400,
-	                            zoomStep: 10,
-	                            onApplyZoomPercent: onApplyZoomPercent,
-	                            onFitWidth: onZoomToFitWidth,
-	                            onActualSize: onZoomToActualSize,
-	                            onSyncZoomPercent: currentZoomPercent
-	                        )
-	                    }
-	                    Button(action: toggleRightPanel) {
-	                        Image(systemName: "sidebar.right")
-	                            .foregroundStyle(isRightPanelVisible ? Color.accentColor : Color.black.opacity(0.4))
-	                    }
+                    Button(action: {}) {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    Button {
+                        isZoomPopoverPresented.toggle()
+                    } label: {
+                        Text("AA")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .disabled(isZoomEnabled == false)
+                    .popover(isPresented: $isZoomPopoverPresented, arrowEdge: .top) {
+                        ReaderZoomPopover(
+                            zoomPercent: $zoomPercent,
+                            isEnabled: isZoomEnabled,
+                            zoomRange: 25...400,
+                            zoomStep: 10,
+                            onApplyZoomPercent: onApplyZoomPercent,
+                            onSyncZoomPercent: currentZoomPercent
+                        )
+                    }
+                    Button(action: toggleRightPanel) {
+                        Image(systemName: "sidebar.right")
+                            .foregroundStyle(isRightPanelVisible ? Color.accentColor : Color.black.opacity(0.4))
+                    }
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 14))
@@ -153,19 +149,17 @@ struct ReaderToolbar: View {
 }
 
 #Preview {
-	    ReaderToolbar(
-	        title: "New reading",
-	        isTitleEditable: true,
-	        onTitleCommit: { _ in },
-	        isRightPanelVisible: .constant(false),
-	        highlightColor: .constant(.yellow),
-	        onHighlight: { _ in },
-	        onRightPanelToggle: { _ in },
-	        isZoomEnabled: true,
-	        currentZoomPercent: { 100 },
-	        onApplyZoomPercent: { _ in },
-	        onZoomToFitWidth: {},
-	        onZoomToActualSize: {}
-	    )
-	    .background(Color.white)
-	}
+    ReaderToolbar(
+        title: "New reading",
+        isTitleEditable: true,
+        onTitleCommit: { _ in },
+        isRightPanelVisible: .constant(false),
+        highlightColor: .constant(.yellow),
+        onHighlight: { _ in },
+        onRightPanelToggle: { _ in },
+        isZoomEnabled: true,
+        currentZoomPercent: { 100 },
+        onApplyZoomPercent: { _ in }
+    )
+    .background(Color.white)
+}

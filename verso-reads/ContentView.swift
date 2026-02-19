@@ -9,6 +9,11 @@ import SwiftUI
 import PDFKit
 import SwiftData
 
+private enum MainPanel {
+    case reader
+    case settings
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \LibraryDocument.lastOpenedAt, order: .reverse) private var documents: [LibraryDocument]
@@ -17,6 +22,11 @@ struct ContentView: View {
     @State private var pdfDocument: PDFDocument?
     @State private var activeDocument: LibraryDocument?
     @State private var didRestoreLastDocument = false
+    @State private var chatContext: ChatContext?
+    @State private var chatMessages: [ChatMessage] = []
+    @StateObject private var selectionDismiss = SelectionDismissController()
+    @StateObject private var openAISettings = OpenAISettingsStore()
+    @State private var mainPanel: MainPanel = .reader
 
     private let sidebarWidth: CGFloat = 220
 
@@ -27,6 +37,7 @@ struct ContentView: View {
                 onNewReading: { clearActiveDocument() },
                 onOpenDocument: { openDocument($0) },
                 onDeleteDocument: { deleteDocument($0) },
+                onSelectSettings: { showSettings() },
                 documents: documents
             )
                 .frame(maxHeight: .infinity)
@@ -37,34 +48,60 @@ struct ContentView: View {
 
             // Main content area with optional right panel
             HStack(spacing: 0) {
-                ReaderCanvasView(
-                    isRightPanelVisible: $isRightPanelVisible,
-                    activeDocument: $activeDocument,
-                    pdfDocument: $pdfDocument
-                )
-                .background(
-                    UnevenRoundedRectangle(
-                        topLeadingRadius: 12,
-                        bottomLeadingRadius: 12,
-                        bottomTrailingRadius: 0,
-                        topTrailingRadius: 0
-                    )
-                    .fill(Color.white)
-                    .shadow(color: Color.black.opacity(0.1), radius: 6, x: -2, y: 0)
-                )
-
-                if isRightPanelVisible {
-                    RightPanelView()
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
+                mainPanelView
             }
             .padding(.leading, sidebarWidth)
         }
         .ignoresSafeArea()
         .background(.ultraThinMaterial)
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                if selectionDismiss.isActive {
+                    selectionDismiss.clearIfPossible()
+                }
+            }
+        )
         .task {
             restoreLastDocumentIfNeeded()
+            openAISettings.load()
         }
+    }
+
+    @ViewBuilder
+    private var mainPanelView: some View {
+        if mainPanel == .settings {
+            SettingsView(settings: openAISettings)
+                .background(readerBackground)
+        } else {
+            ReaderCanvasView(
+                isRightPanelVisible: $isRightPanelVisible,
+                activeDocument: $activeDocument,
+                pdfDocument: $pdfDocument,
+                onAddSelectionToChat: addSelectionToChat,
+                selectionDismiss: selectionDismiss
+            )
+            .background(readerBackground)
+
+            if isRightPanelVisible {
+                RightPanelView(
+                    chatContext: $chatContext,
+                    messages: $chatMessages,
+                    settings: openAISettings
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+    }
+
+    private var readerBackground: some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: 12,
+            bottomLeadingRadius: 12,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: 0
+        )
+        .fill(Color.white)
+        .shadow(color: Color.black.opacity(0.1), radius: 6, x: -2, y: 0)
     }
 
     private func restoreLastDocumentIfNeeded() {
@@ -83,6 +120,9 @@ struct ContentView: View {
             pdfDocument = PDFDocument(url: url)
             document.lastOpenedAt = Date()
             try modelContext.save()
+            chatContext = nil
+            chatMessages = []
+            mainPanel = .reader
         } catch {
             print("Failed to open document: \(error)")
         }
@@ -91,6 +131,9 @@ struct ContentView: View {
     private func clearActiveDocument() {
         activeDocument = nil
         pdfDocument = nil
+        chatContext = nil
+        chatMessages = []
+        mainPanel = .reader
     }
 
     private func deleteDocument(_ document: LibraryDocument) {
@@ -103,6 +146,17 @@ struct ContentView: View {
         } catch {
             print("Failed to delete document: \(error)")
         }
+    }
+
+    private func addSelectionToChat(_ context: ChatContext) {
+        chatContext = context
+        isRightPanelVisible = true
+        mainPanel = .reader
+    }
+
+    private func showSettings() {
+        mainPanel = .settings
+        isRightPanelVisible = false
     }
 }
 

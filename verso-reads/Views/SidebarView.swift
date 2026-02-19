@@ -9,6 +9,7 @@ struct SidebarView: View {
     let onNewReading: () -> Void
     let onOpenDocument: (LibraryDocument) -> Void
     let onDeleteDocument: (LibraryDocument) -> Void
+    let onSelectSettings: () -> Void
     let documents: [LibraryDocument]
 
     var body: some View {
@@ -55,7 +56,7 @@ struct SidebarView: View {
 
             Spacer()
 
-            SidebarRow(icon: "gearshape", label: "Settings")
+            SidebarRow(icon: "gearshape", label: "Settings", action: onSelectSettings)
                 .foregroundStyle(Color.black.opacity(0.5))
         }
         .padding(.top, 52)
@@ -72,6 +73,7 @@ struct SidebarView: View {
         onNewReading: {},
         onOpenDocument: { _ in },
         onDeleteDocument: { _ in },
+        onSelectSettings: {},
         documents: []
     )
         .frame(height: 600)

@@ -6,6 +6,10 @@
 import SwiftUI
 
 struct RightPanelView: View {
+    @Binding var chatContext: ChatContext?
+    @Binding var messages: [ChatMessage]
+    @ObservedObject var settings: OpenAISettingsStore
+
     var body: some View {
         HStack(spacing: 0) {
             // Vertical divider
@@ -19,7 +23,7 @@ struct RightPanelView: View {
                 Divider()
 
                 // Bottom section (chat)
-                ChatView()
+                ChatView(context: $chatContext, messages: $messages, settings: settings)
             }
         }
         .frame(width: 340)
@@ -30,7 +34,7 @@ struct RightPanelView: View {
 #Preview {
     HStack(spacing: 0) {
         Color.gray.opacity(0.1)
-        RightPanelView()
+        RightPanelView(chatContext: .constant(nil), messages: .constant([]), settings: OpenAISettingsStore())
     }
     .frame(width: 800, height: 600)
 }

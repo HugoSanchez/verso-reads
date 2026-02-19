@@ -8,14 +8,23 @@ import Combine
 import PDFKit
 
 @MainActor
-final class PDFReaderController: ObservableObject {
+final class PDFReaderController: NSObject, ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
     weak var pdfView: PDFView?
     private var preferredScaleFactor: CGFloat?
     private var preferredScaleFactorExpiresAt: Date?
+    @Published private(set) var selectionInfo: SelectionInfo?
+
+    private weak var observedScrollView: NSScrollView?
+    private weak var observedContentView: NSView?
+
 
     func attach(pdfView: PDFView) {
-        self.pdfView = pdfView
+        if self.pdfView !== pdfView {
+            stopObservingSelection()
+            self.pdfView = pdfView
+            startObservingSelection(in: pdfView)
+        }
     }
 
     func capturePreferredScaleFactor() {
@@ -68,6 +77,7 @@ final class PDFReaderController: ObservableObject {
 
     func clearSelection() {
         pdfView?.clearSelection()
+        selectionInfo = nil
     }
 
     func makeHighlightAnchorFromSelection() -> (anchor: PDFHighlightAnchor, quote: String)? {
@@ -110,6 +120,104 @@ final class PDFReaderController: ObservableObject {
 
         guard fragments.isEmpty == false else { return nil }
         return (PDFHighlightAnchor(fragments: fragments), quote)
+    }
+
+    private func startObservingSelection(in pdfView: PDFView) {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(handleSelectionChanged), name: .PDFViewSelectionChanged, object: pdfView)
+        center.addObserver(self, selector: #selector(handleScaleChanged), name: .PDFViewScaleChanged, object: pdfView)
+        center.addObserver(self, selector: #selector(handleVisiblePagesChanged), name: .PDFViewVisiblePagesChanged, object: pdfView)
+
+        if let scrollView = pdfView.enclosingScrollView {
+            observedScrollView = scrollView
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            observedContentView = scrollView.contentView
+            center.addObserver(self, selector: #selector(handleBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        }
+
+        updateSelectionInfo()
+    }
+
+    private func stopObservingSelection() {
+        NotificationCenter.default.removeObserver(self)
+        observedScrollView = nil
+        observedContentView = nil
+        selectionInfo = nil
+    }
+
+    @objc private func handleSelectionChanged() {
+        updateSelectionInfo()
+    }
+
+    @objc private func handleScaleChanged() {
+        updateSelectionInfo()
+    }
+
+    @objc private func handleVisiblePagesChanged() {
+        updateSelectionInfo()
+    }
+
+    @objc private func handleBoundsChanged() {
+        updateSelectionInfo()
+    }
+
+    private func updateSelectionInfo() {
+        guard let pdfView else {
+            selectionInfo = nil
+            return
+        }
+        guard let selection = pdfView.currentSelection,
+              let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              text.isEmpty == false
+        else {
+            selectionInfo = nil
+            return
+        }
+
+        let unionRect = selectionBoundsInView(selection: selection, pdfView: pdfView)
+        guard unionRect.isNull == false, unionRect.isEmpty == false else {
+            selectionInfo = nil
+            return
+        }
+        guard pdfView.bounds.intersects(unionRect) else {
+            selectionInfo = nil
+            return
+        }
+
+        let adjustedRect: CGRect
+        if pdfView.isFlipped {
+            adjustedRect = unionRect
+        } else {
+            adjustedRect = CGRect(
+                x: unionRect.minX,
+                y: pdfView.bounds.height - unionRect.maxY,
+                width: unionRect.width,
+                height: unionRect.height
+            )
+        }
+
+        selectionInfo = SelectionInfo(text: text, rect: adjustedRect)
+    }
+
+    private func selectionBoundsInView(selection: PDFSelection, pdfView: PDFView) -> CGRect {
+        guard let document = pdfView.document else { return .null }
+        var unionRect = CGRect.null
+
+        for page in selection.pages {
+            let pageIndex = document.index(for: page)
+            guard pageIndex != NSNotFound else { continue }
+            let bounds = selection.bounds(for: page)
+            guard bounds.isNull == false, bounds.isEmpty == false else { continue }
+            let viewRect = pdfView.convert(bounds, from: page)
+            unionRect = unionRect.union(viewRect)
+        }
+
+        return unionRect
+    }
+
+    struct SelectionInfo: Equatable {
+        let text: String
+        let rect: CGRect
     }
 
     private func fitWidthScaleFactor(for pdfView: PDFView, availableWidth: CGFloat) -> CGFloat? {

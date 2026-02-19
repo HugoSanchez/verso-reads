@@ -14,11 +14,12 @@ struct ReaderCanvasView: View {
     @Binding var isRightPanelVisible: Bool
     @Binding var activeDocument: LibraryDocument?
     @Binding var pdfDocument: PDFDocument?
+    let onAddSelectionToChat: (ChatContext) -> Void
+    let selectionDismiss: SelectionDismissController
 
     @StateObject private var pdfController = PDFReaderController()
     @State private var highlights: [Annotation] = []
     @State private var highlightColor: HighlightColor = .yellow
-    @State private var availableWidth: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,12 +41,6 @@ struct ReaderCanvasView: View {
                 },
                 onApplyZoomPercent: { percent in
                     pdfController.setScaleFactor(CGFloat(percent / 100))
-                },
-                onZoomToFitWidth: {
-                    pdfController.zoomToFitWidth(availableWidth: availableWidth)
-                },
-                onZoomToActualSize: {
-                    pdfController.zoomToActualSize()
                 }
             )
 
@@ -53,17 +48,14 @@ struct ReaderCanvasView: View {
             Group {
                 if let pdfDocument {
                     GeometryReader { proxy in
-                        PDFKitView(
-                            document: pdfDocument,
-                            highlights: highlights,
-                            controller: pdfController,
-                            availableWidth: proxy.size.width
-                        )
-                        .onAppear {
-                            availableWidth = proxy.size.width
-                        }
-                        .onChange(of: proxy.size.width) { _, newValue in
-                            availableWidth = newValue
+                        ZStack(alignment: .topLeading) {
+                            PDFKitView(
+                                document: pdfDocument,
+                                highlights: highlights,
+                                controller: pdfController,
+                                availableWidth: proxy.size.width
+                            )
+                            selectionOverlay(in: proxy.size)
                         }
                     }
                     .background(Color.white)
@@ -74,9 +66,13 @@ struct ReaderCanvasView: View {
         }
         .onAppear {
             loadHighlights()
+            selectionDismiss.clearSelection = { pdfController.clearSelection() }
         }
         .onChange(of: activeDocument?.id) { _, _ in
             loadHighlights()
+        }
+        .onReceive(pdfController.$selectionInfo) { selection in
+            selectionDismiss.isActive = selection != nil
         }
     }
 
@@ -170,13 +166,71 @@ struct ReaderCanvasView: View {
             print("Failed to save highlight: \(error)")
         }
     }
+
+    @ViewBuilder
+    private func selectionOverlay(in size: CGSize) -> some View {
+        if let selection = pdfController.selectionInfo {
+            let position = selectionOverlayPosition(for: selection.rect, in: size)
+            Button {
+                onAddSelectionToChat(ChatContext(text: selection.text))
+                pdfController.clearSelection()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Add to chat")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.95))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+            }
+            .buttonStyle(.plain)
+            .position(position)
+        }
+    }
+
+    private func selectionOverlayPosition(for rect: CGRect, in size: CGSize) -> CGPoint {
+        let padding: CGFloat = 10
+        let fallbackWidth: CGFloat = 120
+        let fallbackHeight: CGFloat = 26
+
+        var x = rect.midX
+        var y = rect.minY - 12
+
+        if x + fallbackWidth / 2 > size.width - padding {
+            x = size.width - padding - fallbackWidth / 2
+        }
+        if x - fallbackWidth / 2 < padding {
+            x = padding + fallbackWidth / 2
+        }
+
+        if y - fallbackHeight / 2 < padding {
+            y = rect.maxY + 14
+        }
+        if y + fallbackHeight / 2 > size.height - padding {
+            y = size.height - padding - fallbackHeight / 2
+        }
+
+        return CGPoint(x: x, y: y)
+    }
 }
 
 #Preview {
     ReaderCanvasView(
         isRightPanelVisible: .constant(false),
         activeDocument: .constant(nil),
-        pdfDocument: .constant(nil)
+        pdfDocument: .constant(nil),
+        onAddSelectionToChat: { _ in },
+        selectionDismiss: SelectionDismissController()
     )
     .modelContainer(for: [LibraryDocument.self, Annotation.self], inMemory: true)
     .frame(width: 800, height: 600)
