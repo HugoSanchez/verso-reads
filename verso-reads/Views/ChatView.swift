@@ -4,6 +4,7 @@
 //
 
 import SwiftUI
+import MarkdownUI
 
 struct ChatView: View {
     @Binding var context: ChatContext?
@@ -13,6 +14,11 @@ struct ChatView: View {
     @State private var inputText: String = ""
     @State private var isSending = false
     @State private var errorMessage: String?
+    @State private var renderedMarkdown: [UUID: MarkdownContent] = [:]
+    @State private var pendingRenders: Set<UUID> = []
+    @State private var lastRenderAt: [UUID: Date] = [:]
+    
+    private let renderInterval: TimeInterval = 0.02
 
     var body: some View {
         VStack(spacing: 0) {
@@ -73,10 +79,14 @@ struct ChatView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Ask about the text...", text: $inputText, axis: .vertical)
+                TextField("Ask about the text...", text: $inputText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
-                    .lineLimit(1...5)
+                    .onSubmit {
+                        if canSend {
+                            sendMessage()
+                        }
+                    }
 
                 Button(action: sendMessage) {
                     Image(systemName: "paperplane")
@@ -109,26 +119,39 @@ struct ChatView: View {
     private func chatBubble(for message: ChatMessage) -> some View {
         HStack {
             if message.role == .assistant {
-                bubbleText(message.content, alignment: .leading, background: Color.black.opacity(0.04))
+                bubbleText(
+                    renderedContent(for: message),
+                    alignment: .leading,
+                    background: Color.clear,
+                    maxWidth: .infinity
+                )
                 Spacer(minLength: 20)
             } else {
                 Spacer(minLength: 20)
-                bubbleText(message.content, alignment: .trailing, background: Color.accentColor.opacity(0.12))
+                bubbleText(
+                    renderedContent(for: message),
+                    alignment: .trailing,
+                    background: Color.accentColor.opacity(0.12),
+                    maxWidth: 240
+                )
             }
         }
     }
 
-    private func bubbleText(_ text: String, alignment: HorizontalAlignment, background: Color) -> some View {
-        Text(text)
-            .font(.system(size: 12))
-            .foregroundStyle(Color.black.opacity(0.85))
+    private func bubbleText(
+        _ content: MarkdownContent,
+        alignment: HorizontalAlignment,
+        background: Color,
+        maxWidth: CGFloat
+    ) -> some View {
+        MarkdownTextView(content: content, fontSize: 12, textColor: Color.black.opacity(0.85))
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(background)
             )
-            .frame(maxWidth: 240, alignment: alignment == .leading ? .leading : .trailing)
+            .frame(maxWidth: maxWidth, alignment: alignment == .leading ? .leading : .trailing)
     }
 
     private func sendMessage() {
@@ -139,8 +162,11 @@ struct ChatView: View {
         errorMessage = nil
 
         let assistantID = UUID()
-        messages.append(ChatMessage(role: .user, content: trimmed))
+        let userMessage = ChatMessage(role: .user, content: trimmed)
+        messages.append(userMessage)
         messages.append(ChatMessage(id: assistantID, role: .assistant, content: ""))
+        renderNow(for: userMessage.id)
+        renderNow(for: assistantID)
         inputText = ""
 
         let contextText = context?.text
@@ -160,6 +186,7 @@ struct ChatView: View {
                 }
                 await MainActor.run {
                     isSending = false
+                    renderNow(for: assistantID)
                 }
             } catch {
                 await MainActor.run {
@@ -196,6 +223,40 @@ struct ChatView: View {
     private func appendDelta(_ delta: String, to assistantID: UUID) {
         guard let index = messages.firstIndex(where: { $0.id == assistantID }) else { return }
         messages[index].content += delta
+        scheduleRender(for: assistantID)
+    }
+
+    private func renderedContent(for message: ChatMessage) -> MarkdownContent {
+        if let cached = renderedMarkdown[message.id] {
+            return cached
+        }
+        return MarkdownContent(message.content)
+    }
+
+    private func renderNow(for messageID: UUID) {
+        guard let message = messages.first(where: { $0.id == messageID }) else { return }
+        renderedMarkdown[messageID] = MarkdownContent(message.content)
+    }
+
+    private func scheduleRender(for messageID: UUID) {
+        let now = Date()
+        let last = lastRenderAt[messageID] ?? .distantPast
+        let elapsed = now.timeIntervalSince(last)
+
+        if elapsed >= renderInterval, pendingRenders.contains(messageID) == false {
+            lastRenderAt[messageID] = now
+            renderNow(for: messageID)
+            return
+        }
+
+        guard pendingRenders.contains(messageID) == false else { return }
+        pendingRenders.insert(messageID)
+        let delay = max(renderInterval - elapsed, 0.01)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            pendingRenders.remove(messageID)
+            lastRenderAt[messageID] = Date()
+            renderNow(for: messageID)
+        }
     }
 }
 

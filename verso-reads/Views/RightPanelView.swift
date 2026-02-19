@@ -9,6 +9,8 @@ struct RightPanelView: View {
     @Binding var chatContext: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
+    
+    private let panelWidth: CGFloat = 360
 
     var body: some View {
         HStack(spacing: 0) {
@@ -26,7 +28,7 @@ struct RightPanelView: View {
                 ChatView(context: $chatContext, messages: $messages, settings: settings)
             }
         }
-        .frame(width: 340)
+        .frame(width: panelWidth)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }

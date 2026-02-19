@@ -12,3 +12,15 @@
 
 - [ ] Verify Settings renders in the reader area and saves/reloads the API key from Keychain.
 - [ ] Verify streaming output renders progressively in chat.
+
+## Next: Markdown + Chat Input
+
+- [x] Decide markdown rendering approach (MarkdownUI) and define shared styling.
+- [x] Add a reusable Markdown view for both Chat and Notes.
+- [x] Render markdown during streaming with throttled re-renders.
+- [x] Implement Enter-to-send in chat input (Shift+Enter for newline).
+
+## Review (Markdown + Input)
+
+- [ ] Verify markdown renders correctly in chat.
+- [ ] Verify Enter sends and Shift+Enter inserts newline.
