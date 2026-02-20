@@ -38,7 +38,7 @@ struct PDFKitView: NSViewRepresentable {
             nsView.document = document
             context.coordinator.reset()
             nsView.autoScales = true
-            controller.resetPreferredScaleFactor()
+            controller.resetDesiredScaleFactor()
         }
         nsView.pageShadowsEnabled = false
         hideScrollbars(in: nsView)
@@ -46,7 +46,7 @@ struct PDFKitView: NSViewRepresentable {
             hideScrollbars(in: nsView)
         }
         controller.attach(pdfView: nsView)
-        controller.applyPreferredScaleFactorIfNeeded(availableWidth: availableWidth)
+        controller.applyDesiredScaleFactorIfNeeded(availableWidth: availableWidth)
         context.coordinator.sync(highlights: highlights, in: nsView)
     }
 

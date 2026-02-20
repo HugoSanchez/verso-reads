@@ -11,6 +11,7 @@ import UniformTypeIdentifiers
 struct ReaderCanvasView: View {
     @Environment(\.modelContext) private var modelContext
 
+    @Binding var isSidebarVisible: Bool
     @Binding var isRightPanelVisible: Bool
     @Binding var activeDocument: LibraryDocument?
     @Binding var pdfDocument: PDFDocument?
@@ -27,13 +28,15 @@ struct ReaderCanvasView: View {
                 title: readerTitle,
                 isTitleEditable: activeDocument != nil,
                 onTitleCommit: renameActiveDocument,
+                isSidebarVisible: $isSidebarVisible,
+                onSidebarToggle: { _ in
+                    pdfController.captureDesiredScaleFactorIfNeeded()
+                },
                 isRightPanelVisible: $isRightPanelVisible,
                 highlightColor: $highlightColor,
                 onHighlight: { addHighlight(color: $0) },
-                onRightPanelToggle: { newValue in
-                    if newValue {
-                        pdfController.capturePreferredScaleFactor()
-                    }
+                onRightPanelToggle: { _ in
+                    pdfController.captureDesiredScaleFactorIfNeeded()
                 },
                 isZoomEnabled: pdfDocument != nil,
                 currentZoomPercent: {
@@ -226,6 +229,7 @@ struct ReaderCanvasView: View {
 
 #Preview {
     ReaderCanvasView(
+        isSidebarVisible: .constant(true),
         isRightPanelVisible: .constant(false),
         activeDocument: .constant(nil),
         pdfDocument: .constant(nil),

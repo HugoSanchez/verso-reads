@@ -9,6 +9,8 @@ struct ReaderToolbar: View {
     let title: String
     let isTitleEditable: Bool
     let onTitleCommit: (String) -> Void
+    @Binding var isSidebarVisible: Bool
+    let onSidebarToggle: (Bool) -> Void
     @Binding var isRightPanelVisible: Bool
     @Binding var highlightColor: HighlightColor
     let onHighlight: (HighlightColor) -> Void
@@ -26,7 +28,15 @@ struct ReaderToolbar: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
+                Button(action: toggleSidebar) {
+                    Image(systemName: "sidebar.left")
+                        .foregroundStyle(isSidebarVisible ? Color.accentColor : Color.black.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 6)
+
                 titleView
+                    .padding(.leading, 2)
 
                 Spacer()
 
@@ -78,9 +88,10 @@ struct ReaderToolbar: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Color.black.opacity(0.4))
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 20)
-            .padding(.bottom, 16)
+            .padding(.leading, isSidebarVisible ? 32 : 118)
+            .padding(.trailing, 24)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
 
             // Subtle separator line
             Rectangle()
@@ -146,6 +157,14 @@ struct ReaderToolbar: View {
             isRightPanelVisible = newValue
         }
     }
+
+    private func toggleSidebar() {
+        let newValue = !isSidebarVisible
+        onSidebarToggle(newValue)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSidebarVisible = newValue
+        }
+    }
 }
 
 #Preview {
@@ -153,6 +172,8 @@ struct ReaderToolbar: View {
         title: "New reading",
         isTitleEditable: true,
         onTitleCommit: { _ in },
+        isSidebarVisible: .constant(true),
+        onSidebarToggle: { _ in },
         isRightPanelVisible: .constant(false),
         highlightColor: .constant(.yellow),
         onHighlight: { _ in },

@@ -27,8 +27,10 @@ struct ContentView: View {
     @StateObject private var selectionDismiss = SelectionDismissController()
     @StateObject private var openAISettings = OpenAISettingsStore()
     @State private var mainPanel: MainPanel = .reader
+    @State private var isSidebarVisible: Bool = true
 
     private let sidebarWidth: CGFloat = 220
+    private var sidebarInset: CGFloat { isSidebarVisible ? sidebarWidth : 0 }
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -40,17 +42,22 @@ struct ContentView: View {
                 onSelectSettings: { showSettings() },
                 documents: documents
             )
-                .frame(maxHeight: .infinity)
+            .frame(maxHeight: .infinity)
+            .offset(x: isSidebarVisible ? 0 : -(sidebarWidth + 24))
+            .opacity(isSidebarVisible ? 1 : 0)
+            .allowsHitTesting(isSidebarVisible)
 
             // Background fill for the rounded corner gaps (matches sidebar color)
             Color.white.opacity(0.55)
-                .padding(.leading, sidebarWidth)
+                .padding(.leading, sidebarInset)
+                .opacity(isSidebarVisible ? 1 : 0)
+                .allowsHitTesting(false)
 
             // Main content area with optional right panel
             HStack(spacing: 0) {
                 mainPanelView
             }
-            .padding(.leading, sidebarWidth)
+            .padding(.leading, sidebarInset)
         }
         .ignoresSafeArea()
         .background(.ultraThinMaterial)
@@ -74,6 +81,7 @@ struct ContentView: View {
                 .background(readerBackground)
         } else {
             ReaderCanvasView(
+                isSidebarVisible: $isSidebarVisible,
                 isRightPanelVisible: $isRightPanelVisible,
                 activeDocument: $activeDocument,
                 pdfDocument: $pdfDocument,
@@ -86,7 +94,8 @@ struct ContentView: View {
                 RightPanelView(
                     chatContext: $chatContext,
                     messages: $chatMessages,
-                    settings: openAISettings
+                    settings: openAISettings,
+                    isSidebarVisible: isSidebarVisible
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }

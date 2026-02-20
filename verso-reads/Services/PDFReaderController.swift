@@ -11,8 +11,8 @@ import PDFKit
 final class PDFReaderController: NSObject, ObservableObject {
     let objectWillChange = ObservableObjectPublisher()
     weak var pdfView: PDFView?
-    private var preferredScaleFactor: CGFloat?
-    private var preferredScaleFactorExpiresAt: Date?
+    private var desiredScaleFactor: CGFloat?
+    private var isApplyingScaleProgrammatically = false
     @Published private(set) var selectionInfo: SelectionInfo?
 
     private weak var observedScrollView: NSScrollView?
@@ -27,30 +27,30 @@ final class PDFReaderController: NSObject, ObservableObject {
         }
     }
 
-    func capturePreferredScaleFactor() {
+    func captureDesiredScaleFactorIfNeeded() {
         guard let pdfView else { return }
-        preferredScaleFactor = pdfView.scaleFactor
-        preferredScaleFactorExpiresAt = Date().addingTimeInterval(0.35)
-    }
-
-    func resetPreferredScaleFactor() {
-        preferredScaleFactor = nil
-        preferredScaleFactorExpiresAt = nil
-    }
-
-    func applyPreferredScaleFactorIfNeeded(availableWidth: CGFloat) {
-        if let preferredScaleFactorExpiresAt, Date() > preferredScaleFactorExpiresAt {
-            resetPreferredScaleFactor()
-            return
+        if desiredScaleFactor == nil {
+            desiredScaleFactor = pdfView.scaleFactor
         }
-        guard let pdfView, let preferredScaleFactor else { return }
+    }
+
+    func resetDesiredScaleFactor() {
+        desiredScaleFactor = nil
+    }
+
+    func applyDesiredScaleFactorIfNeeded(availableWidth: CGFloat) {
+        guard let pdfView, let desiredScaleFactor else { return }
         guard let fitWidthScale = fitWidthScaleFactor(for: pdfView, availableWidth: availableWidth) else { return }
 
-        let clamped = min(preferredScaleFactor, fitWidthScale)
+        let clamped = min(desiredScaleFactor, fitWidthScale)
         pdfView.autoScales = false
 
         if abs(pdfView.scaleFactor - clamped) > 0.0001 {
+            isApplyingScaleProgrammatically = true
             pdfView.scaleFactor = clamped
+            DispatchQueue.main.async { [weak self] in
+                self?.isApplyingScaleProgrammatically = false
+            }
         }
     }
 
@@ -60,9 +60,14 @@ final class PDFReaderController: NSObject, ObservableObject {
 
     func setScaleFactor(_ scaleFactor: CGFloat) {
         guard let pdfView else { return }
-        resetPreferredScaleFactor()
+        desiredScaleFactor = scaleFactor
         pdfView.autoScales = false
+
+        isApplyingScaleProgrammatically = true
         pdfView.scaleFactor = scaleFactor
+        DispatchQueue.main.async { [weak self] in
+            self?.isApplyingScaleProgrammatically = false
+        }
     }
 
     func zoomToActualSize() {
@@ -150,6 +155,9 @@ final class PDFReaderController: NSObject, ObservableObject {
     }
 
     @objc private func handleScaleChanged() {
+        if isApplyingScaleProgrammatically == false, let pdfView, pdfView.autoScales == false {
+            desiredScaleFactor = pdfView.scaleFactor
+        }
         updateSelectionInfo()
     }
 
