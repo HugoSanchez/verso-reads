@@ -167,6 +167,12 @@ struct ContentView: View {
         mainPanel = .settings
         isRightPanelVisible = false
     }
+
+    private func toggleSidebar() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isSidebarVisible.toggle()
+        }
+    }
 }
 
 #Preview {

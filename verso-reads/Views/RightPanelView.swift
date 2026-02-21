@@ -34,6 +34,7 @@ struct RightPanelView: View {
 
                 // Bottom section (chat)
                 ChatView(context: $chatContext, messages: $messages, settings: settings)
+                    .padding(.top, 8)
             }
         }
         .frame(width: CGFloat(panelWidth.wrappedValue))

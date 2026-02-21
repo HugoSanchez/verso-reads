@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0B41D6552F47636B002C46B8 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = 365DF190CFB9CA6A71C55549 /* MarkdownUI */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,7 +26,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0B41D6552F47636B002C46B8 /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,7 +68,7 @@
 			);
 			name = "verso-reads";
 			packageProductDependencies = (
-				365DF190CFB9CA6A71C55549 /* MarkdownUI */,
+				09B7122A067F948435C61BA4 /* Down */,
 			);
 			productName = "verso-reads";
 			productReference = 0B41D58D2F3DF7A0002C46B8 /* verso-reads.app */;
@@ -101,7 +99,7 @@
 			mainGroup = 0B41D5842F3DF7A0002C46B8;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				29712FD12150FA48A66606F1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				A287BEACF10510852AC6D9FD /* XCRemoteSwiftPackageReference "Down" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0B41D58E2F3DF7A0002C46B8 /* Products */;
@@ -356,21 +354,21 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		29712FD12150FA48A66606F1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+		A287BEACF10510852AC6D9FD /* XCRemoteSwiftPackageReference "Down" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui";
+			repositoryURL = "https://github.com/johnxnguyen/Down";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 2.0.2;
+				minimumVersion = 0.11.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		365DF190CFB9CA6A71C55549 /* MarkdownUI */ = {
+		09B7122A067F948435C61BA4 /* Down */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 29712FD12150FA48A66606F1 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */;
-			productName = MarkdownUI;
+			package = A287BEACF10510852AC6D9FD /* XCRemoteSwiftPackageReference "Down" */;
+			productName = Down;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -4,7 +4,7 @@
 //
 
 import SwiftUI
-import MarkdownUI
+import AppKit
 
 struct ChatView: View {
     @Binding var context: ChatContext?
@@ -14,11 +14,12 @@ struct ChatView: View {
     @State private var inputText: String = ""
     @State private var isSending = false
     @State private var errorMessage: String?
-    @State private var renderedMarkdown: [UUID: MarkdownContent] = [:]
+    @State private var renderedMarkdown: [UUID: NSAttributedString] = [:]
     @State private var pendingRenders: Set<UUID> = []
     @State private var lastRenderAt: [UUID: Date] = [:]
     
     private let renderInterval: TimeInterval = 0.02
+    private let messageFontSize: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +52,7 @@ struct ChatView: View {
                     }
                     .padding(16)
                 }
+                .scrollIndicators(.hidden)
             }
         }
     }
@@ -116,42 +118,67 @@ struct ChatView: View {
         .padding(16)
     }
 
+    @ViewBuilder
     private func chatBubble(for message: ChatMessage) -> some View {
-        HStack {
-            if message.role == .assistant {
-                bubbleText(
-                    renderedContent(for: message),
-                    alignment: .leading,
-                    background: Color.clear,
-                    maxWidth: .infinity
-                )
-                Spacer(minLength: 20)
-            } else {
-                Spacer(minLength: 20)
-                bubbleText(
-                    renderedContent(for: message),
-                    alignment: .trailing,
-                    background: Color.accentColor.opacity(0.12),
-                    maxWidth: 240
-                )
+            if message.role == .assistant,
+               message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            EmptyView()
+        } else {
+            HStack {
+                if message.role == .assistant {
+                    bubbleText(
+                        renderedContent(for: message),
+                        alignment: .leading,
+                        background: Color.clear,
+                        maxWidth: .infinity
+                    )
+                    Spacer(minLength: 20)
+                } else {
+                    Spacer(minLength: 20)
+                    userBubbleText(message.content)
+                }
             }
         }
     }
 
     private func bubbleText(
-        _ content: MarkdownContent,
+        _ content: NSAttributedString,
         alignment: HorizontalAlignment,
         background: Color,
         maxWidth: CGFloat
     ) -> some View {
-        MarkdownTextView(content: content, fontSize: 12, textColor: Color.black.opacity(0.85))
+        MarkdownTextView(text: content)
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
             .background(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(background)
             )
             .frame(maxWidth: maxWidth, alignment: alignment == .leading ? .leading : .trailing)
+    }
+
+    private func userBubbleText(_ text: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.black.opacity(0.85))
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Text(text)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.black.opacity(0.85))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.accentColor.opacity(0.12))
+        )
+        .frame(maxWidth: 240, alignment: .trailing)
     }
 
     private func sendMessage() {
@@ -226,16 +253,23 @@ struct ChatView: View {
         scheduleRender(for: assistantID)
     }
 
-    private func renderedContent(for message: ChatMessage) -> MarkdownContent {
+    private func renderedContent(for message: ChatMessage) -> NSAttributedString {
         if let cached = renderedMarkdown[message.id] {
             return cached
         }
-        return MarkdownContent(message.content)
+        if message.role == .user {
+            return renderPlain(message.content)
+        }
+        return renderMarkdown(message.content)
     }
 
     private func renderNow(for messageID: UUID) {
         guard let message = messages.first(where: { $0.id == messageID }) else { return }
-        renderedMarkdown[messageID] = MarkdownContent(message.content)
+        if message.role == .user {
+            renderedMarkdown[messageID] = renderPlain(message.content)
+        } else {
+            renderedMarkdown[messageID] = renderMarkdown(message.content)
+        }
     }
 
     private func scheduleRender(for messageID: UUID) {
@@ -257,6 +291,22 @@ struct ChatView: View {
             lastRenderAt[messageID] = Date()
             renderNow(for: messageID)
         }
+    }
+
+    private func renderMarkdown(_ text: String) -> NSAttributedString {
+        MarkdownRenderer.render(
+            text,
+            fontSize: messageFontSize,
+            textColor: NSColor.black.withAlphaComponent(0.85)
+        )
+    }
+
+    private func renderPlain(_ text: String) -> NSAttributedString {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: messageFontSize),
+            .foregroundColor: NSColor.black.withAlphaComponent(0.85)
+        ]
+        return NSAttributedString(string: text, attributes: attributes)
     }
 }
 

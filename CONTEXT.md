@@ -74,6 +74,13 @@
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 
+## Known Issues (Track Later)
+
+- **WebContent pasteboard sandbox**: `Failed to set up CFPasteboardRef 'general'` / `Sandbox restriction` errors in WebContent; may affect copy/paste in notes WebView.
+- **LaunchServices lookup denied**: WebContent cannot register with `launchservicesd` / `coreservicesd` due to sandbox restrictions; could affect link handling.
+- **RunningBoard / intents entitlements**: missing entitlements for intents framework; currently benign but noted.
+- **AudioComponentRegistrar denied**: sandbox blocks audio registrar; likely benign unless WebContent needs audio.
+
 ## Last Work + Current State
 
 ### Session 2 (Feb 13, 2026)

@@ -90,8 +90,8 @@ struct ReaderToolbar: View {
             }
             .padding(.leading, isSidebarVisible ? 32 : 118)
             .padding(.trailing, 24)
-            .padding(.top, 18)
-            .padding(.bottom, 14)
+            .padding(.top, 16)
+            .padding(.bottom, 13)
 
             // Subtle separator line
             Rectangle()

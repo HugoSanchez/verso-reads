@@ -7,14 +7,9 @@ import SwiftUI
 
 struct NotepadView: View {
     var body: some View {
-        VStack {
-            Spacer()
-            Text("No notes yet")
-                .font(.system(size: 13))
-                .foregroundStyle(Color.black.opacity(0.4))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        NotesWebView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(26)
     }
 }
 
