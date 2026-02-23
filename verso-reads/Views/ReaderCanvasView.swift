@@ -110,6 +110,9 @@ struct ReaderCanvasView: View {
             activeDocument = document
             pdfDocument = PDFDocument(url: storedURL)
             loadHighlights()
+            Task {
+                await RAGIngestionManager.shared.enqueue(document: document, fileURL: storedURL)
+            }
         } catch {
             print("Failed to import PDF: \(error)")
             activeDocument = nil

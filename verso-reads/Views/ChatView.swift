@@ -10,6 +10,7 @@ struct ChatView: View {
     @Binding var context: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
+    @Binding var activeDocument: LibraryDocument?
 
     @State private var inputText: String = ""
     @State private var isSending = false
@@ -203,8 +204,6 @@ struct ChatView: View {
         renderNow(for: assistantID)
         inputText = ""
 
-        let contextText = context?.text
-        let prompt = buildPrompt(question: trimmed, context: contextText)
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let model = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
         let client = OpenAIClient(apiKey: apiKey, model: model.isEmpty ? "gpt-5.2" : model)
@@ -213,6 +212,8 @@ struct ChatView: View {
 
         Task {
             do {
+                let contextText = await resolveContext(question: trimmed, apiKey: apiKey)
+                let prompt = buildPrompt(question: trimmed, context: contextText)
                 for try await delta in client.streamResponse(systemPrompt: systemPrompt, userPrompt: prompt) {
                     await MainActor.run {
                         appendDelta(delta, to: assistantID)
@@ -252,6 +253,26 @@ struct ChatView: View {
             return "Context:\n\(context)\n\nQuestion:\n\(question)"
         }
         return question
+    }
+
+    private func resolveContext(question: String, apiKey: String) async -> String? {
+        if let selectionText = context?.text, selectionText.isEmpty == false {
+            return selectionText
+        }
+
+        guard let activeDocument else { return nil }
+        guard apiKey.isEmpty == false else { return nil }
+
+        do {
+            return try await RAGQueryService.shared.retrieveContext(
+                documentID: activeDocument.id,
+                query: question,
+                apiKey: apiKey
+            )
+        } catch {
+            print("RAG context unavailable: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func appendDelta(_ delta: String, to assistantID: UUID) {
@@ -367,7 +388,12 @@ private final class NonScrollingWKWebView: WKWebView {
 }
 
 #Preview {
-    ChatView(context: .constant(nil), messages: .constant([]), settings: OpenAISettingsStore())
+    ChatView(
+        context: .constant(nil),
+        messages: .constant([]),
+        settings: OpenAISettingsStore(),
+        activeDocument: .constant(nil)
+    )
         .frame(width: 340, height: 300)
         .background(Color(nsColor: .windowBackgroundColor))
 }

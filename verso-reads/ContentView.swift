@@ -95,6 +95,7 @@ struct ContentView: View {
                     chatContext: $chatContext,
                     messages: $chatMessages,
                     settings: openAISettings,
+                    activeDocument: $activeDocument,
                     isSidebarVisible: isSidebarVisible
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -132,6 +133,9 @@ struct ContentView: View {
             chatContext = nil
             chatMessages = []
             mainPanel = .reader
+            Task {
+                await RAGIngestionManager.shared.ensureIndexed(document: document, fileURL: url)
+            }
         } catch {
             print("Failed to open document: \(error)")
         }

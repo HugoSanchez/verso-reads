@@ -10,6 +10,7 @@ struct RightPanelView: View {
     @Binding var chatContext: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
+    @Binding var activeDocument: LibraryDocument?
     let isSidebarVisible: Bool
 
     @AppStorage("ui.rightPanelWidth.sidebar") private var panelWidthWithSidebar: Double = 360
@@ -33,7 +34,12 @@ struct RightPanelView: View {
                 Divider()
 
                 // Bottom section (chat)
-                ChatView(context: $chatContext, messages: $messages, settings: settings)
+                ChatView(
+                    context: $chatContext,
+                    messages: $messages,
+                    settings: settings,
+                    activeDocument: $activeDocument
+                )
                     .padding(.top, 8)
             }
         }
@@ -195,7 +201,13 @@ private struct RightPanelResizeHandle: NSViewRepresentable {
 #Preview {
     HStack(spacing: 0) {
         Color.gray.opacity(0.1)
-        RightPanelView(chatContext: .constant(nil), messages: .constant([]), settings: OpenAISettingsStore(), isSidebarVisible: true)
+        RightPanelView(
+            chatContext: .constant(nil),
+            messages: .constant([]),
+            settings: OpenAISettingsStore(),
+            activeDocument: .constant(nil),
+            isSidebarVisible: true
+        )
     }
     .frame(width: 800, height: 600)
 }

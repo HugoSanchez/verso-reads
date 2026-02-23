@@ -79,6 +79,21 @@ struct OpenAIClient {
         }
     }
 
+    func createEmbeddings(input: [String], model: String) async throws -> [[Float]] {
+        let request = try buildEmbeddingsRequest(input: input, model: model)
+        let (data, response) = try await session.data(for: request)
+
+        if let httpResponse = response as? HTTPURLResponse,
+           (200...299).contains(httpResponse.statusCode) == false {
+            let message = String(data: data, encoding: .utf8)
+            throw OpenAIClientError.httpStatus(httpResponse.statusCode, message)
+        }
+
+        let decoded = try JSONDecoder().decode(EmbeddingsResponse.self, from: data)
+        let sorted = decoded.data.sorted { $0.index < $1.index }
+        return sorted.map { $0.embedding.map { Float($0) } }
+    }
+
     private func buildRequest(systemPrompt: String, userPrompt: String) throws -> URLRequest {
         guard let url = URL(string: "https://api.openai.com/v1/responses") else {
             throw OpenAIClientError.invalidURL
@@ -99,6 +114,25 @@ struct OpenAIClient {
             "model": model,
             "input": input,
             "stream": true
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        return request
+    }
+
+    private func buildEmbeddingsRequest(input: [String], model: String) throws -> URLRequest {
+        guard let url = URL(string: "https://api.openai.com/v1/embeddings") else {
+            throw OpenAIClientError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": model,
+            "input": input,
+            "encoding_format": "float"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         return request
@@ -173,4 +207,13 @@ enum OpenAIClientError: LocalizedError {
             return message
         }
     }
+}
+
+private struct EmbeddingsResponse: Decodable {
+    struct EmbeddingData: Decodable {
+        let embedding: [Double]
+        let index: Int
+    }
+
+    let data: [EmbeddingData]
 }

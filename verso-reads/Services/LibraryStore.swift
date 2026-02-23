@@ -78,6 +78,15 @@ enum LibraryStore {
 
         modelContext.delete(document)
         try modelContext.save()
+
+        let documentID = document.id
+        Task {
+            do {
+                try await RAGStore.shared.deleteDocument(documentID)
+            } catch {
+                print("Failed to delete RAG data: \(error)")
+            }
+        }
     }
 
     private static func libraryRootURL() throws -> URL {
