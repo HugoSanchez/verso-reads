@@ -7,8 +7,11 @@ import SwiftUI
 import WebKit
 
 struct NotesWebView: NSViewRepresentable {
+    let markdown: String
+    let onMarkdownChange: (String) -> Void
+
     func makeCoordinator() -> Coordinator {
-        Coordinator()
+        Coordinator(onMarkdownChange: onMarkdownChange)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -16,9 +19,11 @@ struct NotesWebView: NSViewRepresentable {
         let webpagePreferences = WKWebpagePreferences()
         webpagePreferences.allowsContentJavaScript = true
         config.defaultWebpagePreferences = webpagePreferences
+        config.userContentController.add(context.coordinator, name: "notes")
 
         let webView = NotesWKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
+        webView.navigationDelegate = context.coordinator
         applyScrollbarSettings(to: webView)
         return webView
     }
@@ -28,13 +33,68 @@ struct NotesWebView: NSViewRepresentable {
         DispatchQueue.main.async {
             applyScrollbarSettings(to: webView)
         }
-        guard context.coordinator.didLoad == false else { return }
-        loadEditor(into: webView)
-        context.coordinator.didLoad = true
+        if context.coordinator.didLoad == false {
+            loadEditor(into: webView)
+            context.coordinator.didLoad = true
+        }
+
+        context.coordinator.queueMarkdown(markdown, for: webView)
     }
 
-    final class Coordinator {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var didLoad = false
+        var isReady = false
+        private var lastAppliedMarkdown: String?
+        private var pendingMarkdown: String?
+        private let onMarkdownChange: (String) -> Void
+
+        init(onMarkdownChange: @escaping (String) -> Void) {
+            self.onMarkdownChange = onMarkdownChange
+        }
+
+        func queueMarkdown(_ markdown: String, for webView: WKWebView) {
+            if isReady == false {
+                pendingMarkdown = markdown
+                return
+            }
+            applyMarkdown(markdown, to: webView)
+        }
+
+        func applyMarkdown(_ markdown: String, to webView: WKWebView) {
+            guard markdown != lastAppliedMarkdown else { return }
+            lastAppliedMarkdown = markdown
+            let payload = (try? JSONEncoder().encode(markdown))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+            let js = "window.VersoNotesSetContent && window.VersoNotesSetContent(\(payload));"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            if let pending = pendingMarkdown {
+                applyMarkdown(pending, to: webView)
+                pendingMarkdown = nil
+            }
+        }
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "notes" else { return }
+            if let payload = message.body as? [String: Any],
+               let type = payload["type"] as? String {
+                if type == "ready" {
+                    isReady = true
+                    if let pending = pendingMarkdown {
+                        if let webView = message.webView {
+                            applyMarkdown(pending, to: webView)
+                        }
+                        pendingMarkdown = nil
+                    }
+                    return
+                }
+                if type == "markdown", let markdown = payload["markdown"] as? String {
+                    onMarkdownChange(markdown)
+                }
+            }
+        }
     }
 
     private func applyScrollbarSettings(to webView: WKWebView) {
@@ -193,6 +253,12 @@ struct NotesWebView: NSViewRepresentable {
             }
           };
 
+          window.VersoNotesSetContent = (markdown) => {
+            const text = typeof markdown === "string" ? markdown : "";
+            editor.innerText = text;
+            updatePlaceholder();
+          };
+
           const ensureParagraphOnEnter = (event) => {
             if (event.key !== "Enter") {
               return;
@@ -234,6 +300,23 @@ struct NotesWebView: NSViewRepresentable {
 
           updatePlaceholder();
           setTimeout(() => editor.focus(), 0);
+          const postMarkdown = () => {
+            if (!window.webkit?.messageHandlers?.notes) {
+              return;
+            }
+            const text = editor.innerText || "";
+            window.webkit.messageHandlers.notes.postMessage({
+              type: "markdown",
+              markdown: text
+            });
+          };
+          let debounceTimer;
+          editor.addEventListener("input", () => {
+            updatePlaceholder();
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(postMarkdown, 400);
+          });
+          window.webkit?.messageHandlers?.notes?.postMessage({ type: "ready" });
         })();
       </script>
     </body>
@@ -251,6 +334,6 @@ private final class NotesWKWebView: WKWebView {
 }
 
 #Preview {
-    NotesWebView()
+    NotesWebView(markdown: "", onMarkdownChange: { _ in })
         .frame(width: 320, height: 320)
 }

@@ -7,6 +7,7 @@ This folder contains the local, offline-ready web assets for the notes editor.
   - `@tiptap/core@2.27.2`
   - `@tiptap/starter-kit@2.27.2`
   - `@tiptap/extension-placeholder@2.27.2`
+- Markdown autosave uses ProseMirror's markdown parser/serializer via `@tiptap/pm/markdown`.
 
 Rebuild guidance:
 - Run `npm install` once.

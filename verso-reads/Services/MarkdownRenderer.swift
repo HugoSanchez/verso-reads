@@ -5,6 +5,7 @@
 
 import Foundation
 import CoreGraphics
+import AppKit
 import Down
 
 enum MarkdownRenderer {
@@ -72,6 +73,40 @@ enum MarkdownRenderer {
         </body>
         </html>
         """
+    }
+
+    static func renderAttributed(_ markdown: String, fontSize: CGFloat, textColor: NSColor) -> NSAttributedString {
+        let html = renderHTML(
+            markdown,
+            fontSize: fontSize,
+            textColorCSS: cssColor(from: textColor)
+        )
+
+        guard let data = html.data(using: .utf8) else {
+            return NSAttributedString(string: markdown)
+        }
+
+        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
+            .documentType: NSAttributedString.DocumentType.html,
+            .characterEncoding: String.Encoding.utf8.rawValue
+        ]
+
+        if let attributed = try? NSAttributedString(data: data, options: options, documentAttributes: nil) {
+            return attributed
+        }
+
+        return NSAttributedString(string: markdown)
+    }
+
+    private static func cssColor(from color: NSColor) -> String {
+        let resolved = color.usingColorSpace(.deviceRGB) ?? color
+        return String(
+            format: "rgba(%.0f, %.0f, %.0f, %.2f)",
+            resolved.redComponent * 255,
+            resolved.greenComponent * 255,
+            resolved.blueComponent * 255,
+            resolved.alphaComponent
+        )
     }
 
     private static func fallbackHTML(from markdown: String) -> String {
