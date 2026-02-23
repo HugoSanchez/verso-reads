@@ -13,7 +13,11 @@ struct NotesWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        let webView = WKWebView(frame: .zero, configuration: config)
+        let webpagePreferences = WKWebpagePreferences()
+        webpagePreferences.allowsContentJavaScript = true
+        config.defaultWebpagePreferences = webpagePreferences
+
+        let webView = NotesWKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
         applyScrollbarSettings(to: webView)
         return webView
@@ -25,7 +29,7 @@ struct NotesWebView: NSViewRepresentable {
             applyScrollbarSettings(to: webView)
         }
         guard context.coordinator.didLoad == false else { return }
-        webView.loadHTMLString(Self.editorHTML, baseURL: nil)
+        loadEditor(into: webView)
         context.coordinator.didLoad = true
     }
 
@@ -63,12 +67,26 @@ struct NotesWebView: NSViewRepresentable {
         return results
     }
 
-    private static let editorHTML: String = #"""
+    private func loadEditor(into webView: WKWebView) {
+        guard let editorURL = Bundle.main.url(
+            forResource: "index",
+            withExtension: "html",
+            subdirectory: "NotesEditor"
+        ) else {
+            webView.loadHTMLString(Self.fallbackHTML, baseURL: nil)
+            return
+        }
+        let baseURL = editorURL.deletingLastPathComponent()
+        webView.loadFileURL(editorURL, allowingReadAccessTo: baseURL)
+    }
+
+    private static let fallbackHTML: String = #"""
     <!doctype html>
     <html lang="en">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Verso Notes</title>
       <style>
         :root {
           color-scheme: light;
@@ -88,14 +106,21 @@ struct NotesWebView: NSViewRepresentable {
         }
         #editor {
           height: 100%;
+          width: 100%;
+          min-width: 100%;
           box-sizing: border-box;
         }
         .ProseMirror {
+          width: 100%;
+          min-width: 100%;
+          box-sizing: border-box;
+          display: block;
           outline: none;
           padding: 26px 38px 26px 26px;
           min-height: 100%;
-          box-sizing: border-box;
           line-height: 1.55;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
         body::-webkit-scrollbar {
           width: 0;
@@ -132,33 +157,97 @@ struct NotesWebView: NSViewRepresentable {
     </head>
     <body>
       <div id="editor"></div>
-      <script type="module">
-        import { Editor } from "https://esm.sh/@tiptap/core@2.11.1";
-        import StarterKit from "https://esm.sh/@tiptap/starter-kit@2.11.1";
-        import Placeholder from "https://esm.sh/@tiptap/extension-placeholder@2.11.1";
-
-        new Editor({
-          element: document.querySelector("#editor"),
-          extensions: [
-            StarterKit.configure({
-              heading: { levels: [1, 2, 3] }
-            }),
-            Placeholder.configure({
-              placeholder: "Start typing…",
-            }),
-          ],
-          editorProps: {
-            attributes: {
-              spellcheck: "true",
-              autocapitalize: "sentences",
-              autocorrect: "on"
-            }
+      <script>
+        (() => {
+          const placeholderText = "Start typing...";
+          const editor = document.querySelector("#editor");
+          if (!editor) {
+            return;
           }
-        });
+          editor.className = "ProseMirror";
+          editor.setAttribute("contenteditable", "true");
+          editor.setAttribute("spellcheck", "true");
+          editor.setAttribute("autocapitalize", "sentences");
+          editor.setAttribute("autocorrect", "on");
+          editor.setAttribute("data-placeholder", placeholderText);
+          editor.setAttribute("tabindex", "0");
+
+          const isEditorEmpty = () => {
+            const text = editor.textContent || "";
+            if (text.trim().length > 0) {
+              return false;
+            }
+            const html = editor.innerHTML
+              .replace(/<br\\s*\\/?>/gi, "")
+              .replace(/&nbsp;/g, "")
+              .replace(/\\s+/g, "")
+              .trim();
+            return html.length === 0;
+          };
+
+          const updatePlaceholder = () => {
+            if (isEditorEmpty()) {
+              editor.classList.add("is-editor-empty");
+            } else {
+              editor.classList.remove("is-editor-empty");
+            }
+          };
+
+          const ensureParagraphOnEnter = (event) => {
+            if (event.key !== "Enter") {
+              return;
+            }
+            if (event.shiftKey) {
+              return;
+            }
+            if (document.queryCommandSupported("insertParagraph")) {
+              event.preventDefault();
+              document.execCommand("insertParagraph", false);
+            }
+          };
+
+          const applyShortcut = (event) => {
+            if (!event.metaKey) {
+              return false;
+            }
+            if (event.shiftKey || event.altKey || event.ctrlKey) {
+              return false;
+            }
+            const key = event.key.toLowerCase();
+            if (key !== "b" && key !== "i") {
+              return false;
+            }
+            event.preventDefault();
+            document.execCommand(key === "b" ? "bold" : "italic", false);
+            return true;
+          };
+
+          editor.addEventListener("input", updatePlaceholder);
+          editor.addEventListener("focus", () => editor.classList.add("ProseMirror-focused"));
+          editor.addEventListener("blur", () => editor.classList.remove("ProseMirror-focused"));
+          editor.addEventListener("keydown", (event) => {
+            if (applyShortcut(event)) {
+              return;
+            }
+            ensureParagraphOnEnter(event);
+          });
+
+          updatePlaceholder();
+          setTimeout(() => editor.focus(), 0);
+        })();
       </script>
     </body>
     </html>
     """#
+}
+
+private final class NotesWKWebView: WKWebView {
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        window?.makeFirstResponder(self)
+    }
 }
 
 #Preview {

@@ -7,10 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0B41D9072F49AAEF002C46B8 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = 09B7122A067F948435C61BA4 /* Down */; };
+		0B41D9102F49B10002C46B8 /* NotesEditor in Resources */ = {isa = PBXBuildFile; fileRef = 0B41D9112F49B10002C46B8 /* NotesEditor */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0B41D58D2F3DF7A0002C46B8 /* verso-reads.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "verso-reads.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		0B41D9112F49B10002C46B8 /* NotesEditor */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "verso-reads/Resources/NotesEditor"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +29,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0B41D9072F49AAEF002C46B8 /* Down in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -116,6 +120,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0B41D9102F49B10002C46B8 /* NotesEditor in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

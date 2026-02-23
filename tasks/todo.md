@@ -32,12 +32,14 @@
 ## Plan: Notes Offline Editor (Step 1)
 
 - [x] Inventory current NotesWebView setup and identify external dependencies.
-- [ ] Build a local TipTap bundle (core + starter-kit + placeholder) and save as `Resources/NotesEditor/tiptap.bundle.js`.
-- [ ] Add `Resources/NotesEditor/index.html` that loads the local bundle and initializes the editor.
+- [x] Build a local TipTap bundle (core + starter-kit + placeholder) and save as `Resources/NotesEditor/tiptap.bundle.js`.
+- [x] Add `Resources/NotesEditor/index.html` that loads the local bundle and initializes the editor.
 - [ ] Add Notes editor resources to the Xcode target (Copy Bundle Resources).
-- [ ] Update `NotesWebView` to load the bundled HTML via `loadFileURL` and set `baseURL` for local assets.
-- [ ] Add a short build note (versions + how to rebuild) in `Resources/NotesEditor/README.md` or a comment in `NotesWebView`.
+- [x] Update `NotesWebView` to load the bundled HTML via `loadFileURL` and set `baseURL` for local assets.
+- [x] Add a short build note (versions + how to rebuild) in `Resources/NotesEditor/README.md` or a comment in `NotesWebView`.
 - [ ] Verify editor loads with Wi-Fi disabled (basic typing + placeholder).
+- [ ] Decide whether to keep inline HTML fallback or require bundled resources only.
+- [ ] Investigate WKWebView focus/typing issue if fallback still doesn't accept input.
 
 - [x] Add a lightweight Settings screen rendered in the main reader area when the sidebar gear is selected.
 - [x] Implement Keychain storage for the user’s OpenAI API key (local‑only), plus a simple model picker defaulting to `gpt-5.2`.
@@ -72,6 +74,15 @@
 - [ ] Integrate OpenAI embeddings and store vectors; ensure idempotent re-indexing.
 - [ ] Implement retrieval path (embed query -> kNN search -> assemble context).
 - [ ] Add UI feedback for indexing state + error surfacing.
+
+## Plan: RAG (sqlite-vec)
+
+- [ ] Add sqlite-vec loader + DB path helper in Services.
+- [ ] Create RAG schema (docs, chunks, vec table) and migration/bootstrapping.
+- [ ] Implement text extraction + chunker + ingestion pipeline triggered on import.
+- [ ] Add OpenAI embeddings request + persistence; reindex guard.
+- [ ] Wire retrieval into chat (query embedding -> vec search -> context).
+- [ ] Add basic indexing status and error plumbing.
 
 ## Review (RAG MVP)
 

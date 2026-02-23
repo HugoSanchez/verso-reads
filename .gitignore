@@ -2,3 +2,4 @@ xcuserdata/
 .derivedData/
 DerivedData/
 .DS_Store
+node_modules/
