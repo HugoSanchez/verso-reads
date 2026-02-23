@@ -29,6 +29,13 @@
 - [x] Verify editor loads and accepts typing.
 - [x] Verify placeholder and basic formatting shortcuts.
 
+## Plan: Notes Persistence (Markdown Autosave)
+
+- [x] Add SwiftData model for per-document notes.
+- [x] Wire NotesWebView <-> Swift bridge for markdown autosave (debounced).
+- [x] Load saved markdown on editor init and set content.
+- [ ] Verify autosave on typing and reload on app restart.
+
 ## Plan: Notes Offline Editor (Step 1)
 
 - [x] Inventory current NotesWebView setup and identify external dependencies.
@@ -65,6 +72,17 @@
 
 - [x] Verify markdown renders correctly in chat.
 - [x] Verify Enter sends and Shift+Enter inserts newline.
+
+## Next: Chat Persistence
+
+- [x] Add SwiftData models for chat messages tied to documents.
+- [x] Persist user + assistant messages on send/finish.
+- [x] Include recent chat history in each request (no auto-load yet).
+
+## Review (Chat Persistence)
+
+- [ ] Verify messages are written to the database.
+- [ ] Verify follow-up questions include prior context in the same session.
 
 ## Next: RAG (MVP Ingestion + Retrieval)
 

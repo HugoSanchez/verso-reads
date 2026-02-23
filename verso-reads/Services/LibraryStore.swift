@@ -76,6 +76,24 @@ enum LibraryStore {
             modelContext.delete(annotation)
         }
 
+        let notePredicate = #Predicate<DocumentNote> { note in
+            note.documentID == docID
+        }
+        let noteDescriptor = FetchDescriptor<DocumentNote>(predicate: notePredicate)
+        let notes = try modelContext.fetch(noteDescriptor)
+        for note in notes {
+            modelContext.delete(note)
+        }
+
+        let chatPredicate = #Predicate<ChatMessageRecord> { message in
+            message.documentID == docID
+        }
+        let chatDescriptor = FetchDescriptor<ChatMessageRecord>(predicate: chatPredicate)
+        let chatMessages = try modelContext.fetch(chatDescriptor)
+        for message in chatMessages {
+            modelContext.delete(message)
+        }
+
         modelContext.delete(document)
         try modelContext.save()
 

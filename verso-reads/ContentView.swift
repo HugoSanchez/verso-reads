@@ -181,6 +181,6 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: [LibraryDocument.self, Annotation.self], inMemory: true)
+        .modelContainer(for: [LibraryDocument.self, Annotation.self, DocumentNote.self, ChatMessageRecord.self], inMemory: true)
         .frame(width: 1200, height: 760)
 }

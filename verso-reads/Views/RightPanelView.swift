@@ -29,7 +29,7 @@ struct RightPanelView: View {
             // Panel content
             VStack(spacing: 0) {
                 // Top section (notepad)
-                NotepadView()
+                NotepadView(activeDocument: $activeDocument)
 
                 Divider()
 

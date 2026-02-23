@@ -13,7 +13,7 @@ struct verso_readsApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .modelContainer(for: [LibraryDocument.self, Annotation.self])
+                .modelContainer(for: [LibraryDocument.self, Annotation.self, DocumentNote.self, ChatMessageRecord.self])
                 .onAppear {
                     configureWindow()
                 }
