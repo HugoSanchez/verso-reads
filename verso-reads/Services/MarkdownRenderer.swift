@@ -3,11 +3,11 @@
 //  verso-reads
 //
 
-import AppKit
+import Foundation
+import CoreGraphics
 import Down
 
 enum MarkdownRenderer {
-    private static let listItemRegex = try! NSRegularExpression(pattern: #"^\s*(?:[-+*]|\d+\.)\s+"#)
     private static let debugEnabled: Bool = {
         if ProcessInfo.processInfo.environment["VERSO_DEBUG_MARKDOWN"] == "1" {
             return true
@@ -15,91 +15,73 @@ enum MarkdownRenderer {
         return UserDefaults.standard.bool(forKey: "debug.markdown")
     }()
 
-    static func render(_ markdown: String, fontSize: CGFloat, textColor: NSColor) -> NSAttributedString {
-        let normalized = normalizeListSpacing(in: markdown)
-        let rendered = (try? Down(markdownString: normalized).toAttributedString())
-            ?? NSAttributedString(string: markdown)
+    static func renderHTML(_ markdown: String, fontSize: CGFloat, textColorCSS: String) -> String {
+        let htmlBody = (try? Down(markdownString: markdown).toHTML()) ?? fallbackHTML(from: markdown)
 
         if debugEnabled {
             print("=== MarkdownRenderer ===")
             print("--- raw markdown ---")
             print(markdown)
-            if normalized != markdown {
-                print("--- normalized markdown ---")
-                print(normalized)
-            }
-            print("--- rendered string ---")
-            print(rendered.string)
+            print("--- html body ---")
+            print(htmlBody)
             print("=== end ===")
         }
 
-        let mutable = NSMutableAttributedString(attributedString: rendered)
-        let fullRange = NSRange(location: 0, length: mutable.length)
-        let baseFont = NSFont.systemFont(ofSize: fontSize)
-
-        mutable.enumerateAttribute(.font, in: fullRange, options: []) { value, range, _ in
-            let currentFont = value as? NSFont ?? baseFont
-            let traits = currentFont.fontDescriptor.symbolicTraits
-            let descriptor = baseFont.fontDescriptor.withSymbolicTraits(traits)
-            let newFont = NSFont(descriptor: descriptor, size: fontSize) ?? baseFont
-            mutable.addAttribute(.font, value: newFont, range: range)
-        }
-
-        normalizeParagraphIndents(in: mutable)
-        mutable.addAttribute(.foregroundColor, value: textColor, range: fullRange)
-        return mutable
+        return """
+        <!doctype html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <style>
+            :root { color-scheme: light; }
+            html, body { margin: 0; padding: 0; }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+              font-size: \(fontSize)px;
+              color: \(textColorCSS);
+              line-height: 1.55;
+              padding: 0 3px;
+            }
+            p { margin: 0 0 0.75em; }
+            p:last-child { margin-bottom: 0; }
+            ul, ol { margin: 0 0 0.75em 1.2em; padding: 0; }
+            li { margin: 0 0 0.35em; }
+            li:last-child { margin-bottom: 0; }
+            blockquote {
+              margin: 0 0 0.75em;
+              padding-left: 12px;
+              border-left: 2px solid rgba(0, 0, 0, 0.1);
+              color: rgba(0, 0, 0, 0.7);
+            }
+            code {
+              font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+              font-size: 0.95em;
+              background: rgba(0, 0, 0, 0.06);
+              padding: 0.05em 0.2em;
+              border-radius: 4px;
+            }
+            pre code {
+              display: block;
+              padding: 0.6em;
+            }
+          </style>
+        </head>
+        <body>
+          \(htmlBody)
+        </body>
+        </html>
+        """
     }
 
-    private static func normalizeListSpacing(in markdown: String) -> String {
-        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        var output: [String] = []
-        output.reserveCapacity(lines.count + 4)
-
-        for index in lines.indices {
-            let line = lines[index]
-            output.append(line)
-            guard isListItem(line) else { continue }
-
-            var nextIndex = index + 1
-            guard nextIndex < lines.count else { continue }
-            while nextIndex < lines.count, lines[nextIndex].trimmingCharacters(in: .whitespaces).isEmpty {
-                nextIndex += 1
-            }
-            guard nextIndex < lines.count else { continue }
-            let nextLine = lines[nextIndex]
-            if isListItem(nextLine) || nextLine.hasPrefix("  ") || nextLine.hasPrefix("\t") {
-                continue
-            }
-            if nextIndex == index + 1 {
-                output.append("")
-            }
-        }
-
-        return output.joined(separator: "\n")
-    }
-
-    private static func isListItem(_ line: String) -> Bool {
-        let range = NSRange(location: 0, length: line.utf16.count)
-        return listItemRegex.firstMatch(in: line, options: [], range: range) != nil
-    }
-
-    private static func normalizeParagraphIndents(in attributed: NSMutableAttributedString) {
-        let fullRange = NSRange(location: 0, length: attributed.length)
-        attributed.enumerateAttribute(.paragraphStyle, in: fullRange, options: []) { value, range, _ in
-            guard let style = value as? NSParagraphStyle else { return }
-            if style.textLists.isEmpty == false {
-                return
-            }
-            if style.firstLineHeadIndent == 0,
-               style.headIndent == 0,
-               style.tabStops.isEmpty {
-                return
-            }
-            let mutableStyle = style.mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
-            mutableStyle.firstLineHeadIndent = 0
-            mutableStyle.headIndent = 0
-            mutableStyle.tabStops = []
-            attributed.addAttribute(.paragraphStyle, value: mutableStyle, range: range)
-        }
+    private static func fallbackHTML(from markdown: String) -> String {
+        let escaped = markdown
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+            .replacingOccurrences(of: "\n", with: "<br>")
+        return "<p>\(escaped)</p>"
     }
 }

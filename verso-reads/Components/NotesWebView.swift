@@ -15,13 +15,15 @@ struct NotesWebView: NSViewRepresentable {
         let config = WKWebViewConfiguration()
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.enclosingScrollView?.hasVerticalScroller = false
-        webView.enclosingScrollView?.hasHorizontalScroller = false
+        applyScrollbarSettings(to: webView)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        applyScrollbarSettings(to: webView)
+        DispatchQueue.main.async {
+            applyScrollbarSettings(to: webView)
+        }
         guard context.coordinator.didLoad == false else { return }
         webView.loadHTMLString(Self.editorHTML, baseURL: nil)
         context.coordinator.didLoad = true
@@ -29,6 +31,36 @@ struct NotesWebView: NSViewRepresentable {
 
     final class Coordinator {
         var didLoad = false
+    }
+
+    private func applyScrollbarSettings(to webView: WKWebView) {
+        if let enclosing = webView.enclosingScrollView {
+            hideScrollbars(for: enclosing)
+        }
+        for nestedScrollView in findScrollViews(in: webView) {
+            hideScrollbars(for: nestedScrollView)
+        }
+    }
+
+    private func hideScrollbars(for scrollView: NSScrollView) {
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.verticalScroller?.isHidden = true
+        scrollView.horizontalScroller?.isHidden = true
+        scrollView.verticalScroller?.alphaValue = 0
+        scrollView.horizontalScroller?.alphaValue = 0
+    }
+
+    private func findScrollViews(in view: NSView) -> [NSScrollView] {
+        var results: [NSScrollView] = []
+        if let scrollView = view as? NSScrollView {
+            results.append(scrollView)
+        }
+        for subview in view.subviews {
+            results.append(contentsOf: findScrollViews(in: subview))
+        }
+        return results
     }
 
     private static let editorHTML: String = #"""
@@ -56,10 +88,11 @@ struct NotesWebView: NSViewRepresentable {
         }
         #editor {
           height: 100%;
+          box-sizing: border-box;
         }
         .ProseMirror {
           outline: none;
-          padding: 0;
+          padding: 26px 38px 26px 26px;
           min-height: 100%;
           box-sizing: border-box;
           line-height: 1.55;

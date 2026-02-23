@@ -4,7 +4,7 @@
 //
 
 import SwiftUI
-import AppKit
+import WebKit
 
 struct ChatView: View {
     @Binding var context: ChatContext?
@@ -14,7 +14,8 @@ struct ChatView: View {
     @State private var inputText: String = ""
     @State private var isSending = false
     @State private var errorMessage: String?
-    @State private var renderedMarkdown: [UUID: NSAttributedString] = [:]
+    @State private var renderedHTML: [UUID: String] = [:]
+    @State private var messageHeights: [UUID: CGFloat] = [:]
     @State private var pendingRenders: Set<UUID> = []
     @State private var lastRenderAt: [UUID: Date] = [:]
     
@@ -128,6 +129,7 @@ struct ChatView: View {
                 if message.role == .assistant {
                     bubbleText(
                         renderedContent(for: message),
+                        messageID: message.id,
                         alignment: .leading,
                         background: Color.clear,
                         maxWidth: .infinity
@@ -142,19 +144,24 @@ struct ChatView: View {
     }
 
     private func bubbleText(
-        _ content: NSAttributedString,
+        _ html: String,
+        messageID: UUID,
         alignment: HorizontalAlignment,
         background: Color,
         maxWidth: CGFloat
     ) -> some View {
-        MarkdownTextView(text: content)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(background)
-            )
-            .frame(maxWidth: maxWidth, alignment: alignment == .leading ? .leading : .trailing)
+        ChatMarkdownWebView(
+            html: html,
+            contentHeight: heightBinding(for: messageID)
+        )
+        .frame(height: max(messageHeights[messageID] ?? 0, 20))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(background)
+        )
+        .frame(maxWidth: maxWidth, alignment: alignment == .leading ? .leading : .trailing)
     }
 
     private func userBubbleText(_ text: String) -> some View {
@@ -253,23 +260,16 @@ struct ChatView: View {
         scheduleRender(for: assistantID)
     }
 
-    private func renderedContent(for message: ChatMessage) -> NSAttributedString {
-        if let cached = renderedMarkdown[message.id] {
+    private func renderedContent(for message: ChatMessage) -> String {
+        if let cached = renderedHTML[message.id] {
             return cached
-        }
-        if message.role == .user {
-            return renderPlain(message.content)
         }
         return renderMarkdown(message.content)
     }
 
     private func renderNow(for messageID: UUID) {
         guard let message = messages.first(where: { $0.id == messageID }) else { return }
-        if message.role == .user {
-            renderedMarkdown[messageID] = renderPlain(message.content)
-        } else {
-            renderedMarkdown[messageID] = renderMarkdown(message.content)
-        }
+        renderedHTML[messageID] = renderMarkdown(message.content)
     }
 
     private func scheduleRender(for messageID: UUID) {
@@ -293,20 +293,76 @@ struct ChatView: View {
         }
     }
 
-    private func renderMarkdown(_ text: String) -> NSAttributedString {
-        MarkdownRenderer.render(
+    private func renderMarkdown(_ text: String) -> String {
+        MarkdownRenderer.renderHTML(
             text,
             fontSize: messageFontSize,
-            textColor: NSColor.black.withAlphaComponent(0.85)
+            textColorCSS: "rgba(0, 0, 0, 0.85)"
         )
     }
 
-    private func renderPlain(_ text: String) -> NSAttributedString {
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: messageFontSize),
-            .foregroundColor: NSColor.black.withAlphaComponent(0.85)
-        ]
-        return NSAttributedString(string: text, attributes: attributes)
+    private func heightBinding(for messageID: UUID) -> Binding<CGFloat> {
+        Binding(
+            get: { messageHeights[messageID] ?? 0 },
+            set: { messageHeights[messageID] = $0 }
+        )
+    }
+}
+
+private struct ChatMarkdownWebView: NSViewRepresentable {
+    let html: String
+    @Binding var contentHeight: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(contentHeight: $contentHeight)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let webView = NonScrollingWKWebView(frame: .zero, configuration: config)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.enclosingScrollView?.hasVerticalScroller = false
+        webView.enclosingScrollView?.hasHorizontalScroller = false
+        webView.navigationDelegate = context.coordinator
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        if context.coordinator.lastHTML != html {
+            context.coordinator.lastHTML = html
+            webView.loadHTMLString(html, baseURL: nil)
+        } else {
+            context.coordinator.updateHeight(webView)
+        }
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var lastHTML: String?
+        var contentHeight: Binding<CGFloat>
+
+        init(contentHeight: Binding<CGFloat>) {
+            self.contentHeight = contentHeight
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            updateHeight(webView)
+        }
+
+        func updateHeight(_ webView: WKWebView) {
+            webView.evaluateJavaScript("document.documentElement.scrollHeight") { result, _ in
+                if let height = result as? CGFloat {
+                    self.contentHeight.wrappedValue = max(height, 20)
+                } else if let height = result as? Double {
+                    self.contentHeight.wrappedValue = max(CGFloat(height), 20)
+                }
+            }
+        }
+    }
+}
+
+private final class NonScrollingWKWebView: WKWebView {
+    override func scrollWheel(with event: NSEvent) {
+        nextResponder?.scrollWheel(with: event)
     }
 }
 

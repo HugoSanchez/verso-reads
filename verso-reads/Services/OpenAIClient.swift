@@ -54,7 +54,6 @@ struct OpenAIClient {
                                 return
                             }
                             if let delta = parseDelta(from: event) {
-                                debugLog("Delta +\(delta.count) chars")
                                 continuation.yield(delta)
                             } else if let error = parseError(from: event) {
                                 debugLog("SSE error: \(error.localizedDescription)")

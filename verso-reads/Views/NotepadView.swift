@@ -9,7 +9,6 @@ struct NotepadView: View {
     var body: some View {
         NotesWebView()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(26)
     }
 }
 

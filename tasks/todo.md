@@ -2,32 +2,42 @@
 
 ## Next: Reader Header (Toolbar / Titlebar)
 
-- [ ] Plan: decide toolbar vs titlebar integration approach.
-- [ ] Implement Option 2: SwiftUI `.toolbar` for reader header.
-- [ ] Ensure Settings view remains unchanged.
-- [ ] Verify alignment with traffic lights and spacing.
+- [x] Plan: decide toolbar vs titlebar integration approach.
+- [x] Implement Option 2: SwiftUI `.toolbar` for reader header.
+- [x] Ensure Settings view remains unchanged.
+- [x] Verify alignment with traffic lights and spacing.
 
 ## Review (Reader Header)
 
-- [ ] Verify reader header aligns with traffic lights.
-- [ ] Verify sidebar toggle and right panel still work.
+- [x] Verify reader header aligns with traffic lights.
+- [x] Verify sidebar toggle and right panel still work.
 
 ## Next: Sidebar Toggle (Floating)
 
 - [x] Add reusable sidebar toggle button component.
-- [ ] Decide final toggle placement (header vs sidebar vs none).
+- [x] Decide final toggle placement (header vs sidebar vs none).
 
 ## Next: Notes (WYSIWYG WebView)
 
 - [x] Embed WKWebView with TipTap editor (no toolbar).
 - [x] Match chat font sizing and add placeholder.
-- [ ] Decide persistence + markdown export strategy.
-- [ ] Add quote insertion + anchors (later).
+- [x] Decide persistence + markdown export strategy.
+- [x] Add quote insertion + anchors (later).
 
 ## Review (Notes WebView)
 
-- [ ] Verify editor loads and accepts typing.
-- [ ] Verify placeholder and basic formatting shortcuts.
+- [x] Verify editor loads and accepts typing.
+- [x] Verify placeholder and basic formatting shortcuts.
+
+## Plan: Notes Offline Editor (Step 1)
+
+- [x] Inventory current NotesWebView setup and identify external dependencies.
+- [ ] Build a local TipTap bundle (core + starter-kit + placeholder) and save as `Resources/NotesEditor/tiptap.bundle.js`.
+- [ ] Add `Resources/NotesEditor/index.html` that loads the local bundle and initializes the editor.
+- [ ] Add Notes editor resources to the Xcode target (Copy Bundle Resources).
+- [ ] Update `NotesWebView` to load the bundled HTML via `loadFileURL` and set `baseURL` for local assets.
+- [ ] Add a short build note (versions + how to rebuild) in `Resources/NotesEditor/README.md` or a comment in `NotesWebView`.
+- [ ] Verify editor loads with Wi-Fi disabled (basic typing + placeholder).
 
 - [x] Add a lightweight Settings screen rendered in the main reader area when the sidebar gear is selected.
 - [x] Implement Keychain storage for the user’s OpenAI API key (local‑only), plus a simple model picker defaulting to `gpt-5.2`.
@@ -39,8 +49,8 @@
 
 ## Review
 
-- [ ] Verify Settings renders in the reader area and saves/reloads the API key from Keychain.
-- [ ] Verify streaming output renders progressively in chat.
+- [x] Verify Settings renders in the reader area and saves/reloads the API key from Keychain.
+- [x] Verify streaming output renders progressively in chat.
 
 ## Next: Markdown + Chat Input
 
@@ -51,8 +61,8 @@
 
 ## Review (Markdown + Input)
 
-- [ ] Verify markdown renders correctly in chat.
-- [ ] Verify Enter sends and Shift+Enter inserts newline.
+- [x] Verify markdown renders correctly in chat.
+- [x] Verify Enter sends and Shift+Enter inserts newline.
 
 ## Next: RAG (MVP Ingestion + Retrieval)
 
