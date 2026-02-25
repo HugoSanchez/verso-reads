@@ -45,14 +45,24 @@ struct NotesWebView: NSViewRepresentable {
         var didLoad = false
         var isReady = false
         private var lastAppliedMarkdown: String?
+        private var lastEmittedMarkdown: String?
+        private var lastObservedMarkdown: String?
         private var pendingMarkdown: String?
+        private var pollTimer: Timer?
         private let onMarkdownChange: (String) -> Void
 
         init(onMarkdownChange: @escaping (String) -> Void) {
             self.onMarkdownChange = onMarkdownChange
         }
 
+        deinit {
+            stopPolling()
+        }
+
         func queueMarkdown(_ markdown: String, for webView: WKWebView) {
+            if let lastEmitted = lastEmittedMarkdown, markdown == lastEmitted {
+                return
+            }
             if isReady == false {
                 pendingMarkdown = markdown
                 return
@@ -63,6 +73,7 @@ struct NotesWebView: NSViewRepresentable {
         func applyMarkdown(_ markdown: String, to webView: WKWebView) {
             guard markdown != lastAppliedMarkdown else { return }
             lastAppliedMarkdown = markdown
+            lastObservedMarkdown = markdown
             let payload = (try? JSONEncoder().encode(markdown))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
             let js = "window.VersoNotesSetContent && window.VersoNotesSetContent(\(payload));"
@@ -85,15 +96,46 @@ struct NotesWebView: NSViewRepresentable {
                     if let pending = pendingMarkdown {
                         if let webView = message.webView {
                             applyMarkdown(pending, to: webView)
+                            startPolling(with: webView)
                         }
                         pendingMarkdown = nil
+                    }
+                    if let webView = message.webView {
+                        startPolling(with: webView)
                     }
                     return
                 }
                 if type == "markdown", let markdown = payload["markdown"] as? String {
-                    onMarkdownChange(markdown)
+                    lastEmittedMarkdown = markdown
+                    DispatchQueue.main.async {
+                        self.onMarkdownChange(markdown)
+                    }
                 }
             }
+        }
+
+        private func startPolling(with webView: WKWebView) {
+            guard pollTimer == nil else { return }
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self, weak webView] _ in
+                guard let self, let webView else { return }
+                let js = "window.VersoNotesGetMarkdown && window.VersoNotesGetMarkdown();"
+                webView.evaluateJavaScript(js) { result, _ in
+                    guard let markdown = result as? String else { return }
+                    if markdown == self.lastObservedMarkdown { return }
+                    self.lastObservedMarkdown = markdown
+                    if markdown == self.lastEmittedMarkdown { return }
+                    self.lastEmittedMarkdown = markdown
+                    DispatchQueue.main.async {
+                        self.onMarkdownChange(markdown)
+                    }
+                }
+            }
+            pollTimer?.tolerance = 0.2
+        }
+
+        private func stopPolling() {
+            pollTimer?.invalidate()
+            pollTimer = nil
         }
     }
 

@@ -20,6 +20,8 @@ struct ChatView: View {
     @State private var renderedText: [UUID: NSAttributedString] = [:]
     @State private var pendingRenders: Set<UUID> = []
     @State private var lastRenderAt: [UUID: Date] = [:]
+    @State private var inputHeight: CGFloat = 22
+    @State private var isInputFocused = false
     
     private let renderInterval: TimeInterval = 0.02
     private let messageFontSize: CGFloat = 12
@@ -85,14 +87,28 @@ struct ChatView: View {
             }
 
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Ask about the text...", text: $inputText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .onSubmit {
-                        if canSend {
-                            sendMessage()
-                        }
+                ZStack(alignment: .leading) {
+                    if inputText.isEmpty && isInputFocused == false {
+                        Text("Ask about the text...")
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.black.opacity(0.4))
+                            .padding(.leading, 4)
                     }
+
+                    AutoGrowingTextView(
+                        text: $inputText,
+                        height: $inputHeight,
+                        isFocused: $isInputFocused,
+                        fontSize: 13,
+                        maxLines: 3,
+                        onSubmit: {
+                            if canSend {
+                                sendMessage()
+                            }
+                        }
+                    )
+                    .frame(height: inputHeight)
+                }
 
                 Button(action: sendMessage) {
                     Image(systemName: "paperplane")
@@ -202,6 +218,7 @@ struct ChatView: View {
         renderNow(for: userMessage.id)
         renderNow(for: assistantID)
         inputText = ""
+        inputHeight = 22
         persistMessage(userMessage)
 
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -373,6 +390,143 @@ struct ChatView: View {
             fontSize: messageFontSize,
             textColor: NSColor.black.withAlphaComponent(0.85)
         )
+    }
+}
+
+private struct AutoGrowingTextView: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var height: CGFloat
+    @Binding var isFocused: Bool
+    let fontSize: CGFloat
+    let maxLines: Int
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            text: $text,
+            height: $height,
+            isFocused: $isFocused,
+            fontSize: fontSize,
+            maxLines: maxLines,
+            onSubmit: onSubmit
+        )
+    }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView()
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.textContainerInset = NSSize(width: 0, height: 2)
+        textView.backgroundColor = .clear
+        textView.font = NSFont.systemFont(ofSize: fontSize)
+        textView.textColor = NSColor.black.withAlphaComponent(0.85)
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineBreakMode = .byWordWrapping
+        textView.delegate = context.coordinator
+
+        scrollView.documentView = textView
+        context.coordinator.textView = textView
+        context.coordinator.updateHeight()
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.textDidBeginEditing),
+            name: NSText.didBeginEditingNotification,
+            object: textView
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.textDidEndEditing),
+            name: NSText.didEndEditingNotification,
+            object: textView
+        )
+
+        return scrollView
+    }
+
+    func updateNSView(_ nsView: NSScrollView, context: Context) {
+        guard let textView = context.coordinator.textView else { return }
+        if textView.string != text {
+            textView.string = text
+        }
+        context.coordinator.updateHeight()
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        @Binding var text: String
+        @Binding var height: CGFloat
+        @Binding var isFocused: Bool
+        let fontSize: CGFloat
+        let maxLines: Int
+        weak var textView: NSTextView?
+
+        let onSubmit: () -> Void
+
+        init(
+            text: Binding<String>,
+            height: Binding<CGFloat>,
+            isFocused: Binding<Bool>,
+            fontSize: CGFloat,
+            maxLines: Int,
+            onSubmit: @escaping () -> Void
+        ) {
+            _text = text
+            _height = height
+            _isFocused = isFocused
+            self.fontSize = fontSize
+            self.maxLines = maxLines
+            self.onSubmit = onSubmit
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            text = textView.string
+            updateHeight()
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                    return false
+                }
+                onSubmit()
+                return true
+            }
+            return false
+        }
+
+        @objc func textDidBeginEditing() {
+            isFocused = true
+        }
+
+        @objc func textDidEndEditing() {
+            isFocused = false
+        }
+
+        func updateHeight() {
+            guard let textView else { return }
+            guard let textContainer = textView.textContainer else { return }
+            textView.layoutManager?.ensureLayout(for: textContainer)
+            let usedRect = textView.layoutManager?.usedRect(for: textContainer) ?? .zero
+            let font = NSFont.systemFont(ofSize: fontSize)
+            let lineHeight = font.ascender - font.descender + font.leading
+            let maxHeight = lineHeight * CGFloat(maxLines) + (textView.textContainerInset.height * 2)
+            let targetHeight = max(lineHeight, min(usedRect.height + (textView.textContainerInset.height * 2), maxHeight))
+            if abs(height - targetHeight) > 0.5 {
+                height = targetHeight
+            }
+        }
     }
 }
 

@@ -28,6 +28,7 @@ struct ContentView: View {
     @StateObject private var openAISettings = OpenAISettingsStore()
     @State private var mainPanel: MainPanel = .reader
     @State private var isSidebarVisible: Bool = true
+    @StateObject private var readerSession = ReaderSession()
 
     private let sidebarWidth: CGFloat = 220
     private var sidebarInset: CGFloat { isSidebarVisible ? sidebarWidth : 0 }
@@ -61,6 +62,7 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .background(.ultraThinMaterial)
+        .environmentObject(readerSession)
         .simultaneousGesture(
             TapGesture().onEnded {
                 if selectionDismiss.isActive {
@@ -68,9 +70,13 @@ struct ContentView: View {
                 }
             }
         )
+        .onChange(of: isRightPanelVisible) { _, isVisible in
+            readerSession.isRightPanelVisible = isVisible
+        }
         .task {
             restoreLastDocumentIfNeeded()
             openAISettings.load()
+            readerSession.isRightPanelVisible = isRightPanelVisible
         }
     }
 
@@ -96,6 +102,7 @@ struct ContentView: View {
                     messages: $chatMessages,
                     settings: openAISettings,
                     activeDocument: $activeDocument,
+                    isRightPanelVisible: $isRightPanelVisible,
                     isSidebarVisible: isSidebarVisible
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -127,6 +134,7 @@ struct ContentView: View {
         do {
             let url = try LibraryStore.fileURL(for: document)
             activeDocument = document
+            readerSession.activeDocumentID = document.id
             pdfDocument = PDFDocument(url: url)
             document.lastOpenedAt = Date()
             try modelContext.save()
@@ -143,6 +151,7 @@ struct ContentView: View {
 
     private func clearActiveDocument() {
         activeDocument = nil
+        readerSession.activeDocumentID = nil
         pdfDocument = nil
         chatContext = nil
         chatMessages = []

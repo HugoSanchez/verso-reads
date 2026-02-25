@@ -24536,6 +24536,36 @@ img.ProseMirror-separator {
   var isApplyingContent = false;
   var updateTimer = null;
   var markdownParser = null;
+  var markdownSerializer = null;
+  var nameMap = {
+    list_item: "listItem",
+    bullet_list: "bulletList",
+    ordered_list: "orderedList",
+    code_block: "codeBlock",
+    horizontal_rule: "horizontalRule",
+    hard_break: "hardBreak"
+  };
+  var remapSpec = (spec, schema2) => {
+    if (spec.block && nameMap[spec.block]) {
+      spec.block = nameMap[spec.block];
+    }
+    if (spec.node && nameMap[spec.node]) {
+      spec.node = nameMap[spec.node];
+    }
+    if (spec.mark && nameMap[spec.mark]) {
+      spec.mark = nameMap[spec.mark];
+    }
+    if (spec.block && !schema2.nodes[spec.block]) {
+      return null;
+    }
+    if (spec.node && !schema2.nodes[spec.node]) {
+      return null;
+    }
+    if (spec.mark && !schema2.marks[spec.mark]) {
+      return null;
+    }
+    return spec;
+  };
   var postMessage = (payload) => {
     var _a2, _b;
     if ((_b = (_a2 = window.webkit) == null ? void 0 : _a2.messageHandlers) == null ? void 0 : _b.notes) {
@@ -24553,7 +24583,8 @@ img.ProseMirror-separator {
       if (!editorInstance || isApplyingContent) {
         return;
       }
-      const markdown = defaultMarkdownSerializer.serialize(editorInstance.state.doc);
+      const serializer = markdownSerializer != null ? markdownSerializer : defaultMarkdownSerializer;
+      const markdown = serializer.serialize(editorInstance.state.doc);
       postMessage({ type: "markdown", markdown });
     }, 400);
   };
@@ -24587,10 +24618,29 @@ img.ProseMirror-separator {
         scheduleMarkdownPost();
       }
     });
+    const remappedTokens = Object.fromEntries(
+      Object.entries(defaultMarkdownParser.tokens).map(([key, value]) => [key, remapSpec({ ...value }, editorInstance.schema)]).filter(([, value]) => value !== null)
+    );
     markdownParser = new MarkdownParser(
       editorInstance.schema,
       defaultMarkdownParser.tokenizer,
-      defaultMarkdownParser.tokens
+      remappedTokens
+    );
+    const remappedNodes = { ...defaultMarkdownSerializer.nodes };
+    for (const [from2, to] of Object.entries(nameMap)) {
+      if (remappedNodes[from2] && !remappedNodes[to]) {
+        remappedNodes[to] = remappedNodes[from2];
+        delete remappedNodes[from2];
+      }
+    }
+    for (const key of Object.keys(remappedNodes)) {
+      if (!editorInstance.schema.nodes[key]) {
+        delete remappedNodes[key];
+      }
+    }
+    markdownSerializer = new MarkdownSerializer(
+      remappedNodes,
+      defaultMarkdownSerializer.marks
     );
     postMessage({ type: "ready" });
   };

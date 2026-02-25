@@ -80,6 +80,8 @@
 - **LaunchServices lookup denied**: WebContent cannot register with `launchservicesd` / `coreservicesd` due to sandbox restrictions; could affect link handling.
 - **RunningBoard / intents entitlements**: missing entitlements for intents framework; currently benign but noted.
 - **AudioComponentRegistrar denied**: sandbox blocks audio registrar; likely benign unless WebContent needs audio.
+- **WebContent XPC / TCC warnings**: `XPC_ERROR_CONNECTION_INVALID` / `TCCAccessRequest_block_invoke` from WebContent talking to system services (LaunchServices/TCC) under sandbox; typically benign unless link handling or permissions are broken.
+- **IconRendering metallib warning**: `unable to load binary archive for shader library ... IconRendering.framework ... binary.metallib` appears in some environments; treat as system noise unless icon rendering breaks.
 
 ## Last Work + Current State
 

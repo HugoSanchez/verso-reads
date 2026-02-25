@@ -11,6 +11,7 @@ struct RightPanelView: View {
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
     @Binding var activeDocument: LibraryDocument?
+    @Binding var isRightPanelVisible: Bool
     let isSidebarVisible: Bool
 
     @AppStorage("ui.rightPanelWidth.sidebar") private var panelWidthWithSidebar: Double = 360
@@ -29,7 +30,7 @@ struct RightPanelView: View {
             // Panel content
             VStack(spacing: 0) {
                 // Top section (notepad)
-                NotepadView(activeDocument: $activeDocument)
+                NotepadView()
 
                 Divider()
 
@@ -206,8 +207,10 @@ private struct RightPanelResizeHandle: NSViewRepresentable {
             messages: .constant([]),
             settings: OpenAISettingsStore(),
             activeDocument: .constant(nil),
+            isRightPanelVisible: .constant(true),
             isSidebarVisible: true
         )
     }
     .frame(width: 800, height: 600)
+    .environmentObject(ReaderSession())
 }

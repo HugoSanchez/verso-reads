@@ -7,7 +7,7 @@ import SwiftUI
 import SwiftData
 
 struct NotepadView: View {
-    @Binding var activeDocument: LibraryDocument?
+    @EnvironmentObject private var readerSession: ReaderSession
     @Environment(\.modelContext) private var modelContext
 
     @State private var markdown: String = ""
@@ -20,15 +20,20 @@ struct NotepadView: View {
             .onAppear {
                 loadNote()
             }
-            .onChange(of: activeDocument?.id) { _, _ in
+            .task(id: readerSession.activeDocumentID) {
                 loadNote()
+            }
+            .onChange(of: readerSession.isRightPanelVisible) { _, isVisible in
+                if isVisible {
+                    loadNote()
+                }
             }
     }
 
     private func loadNote() {
         saveTask?.cancel()
 
-        guard let documentID = activeDocument?.id else {
+        guard let documentID = readerSession.activeDocumentID else {
             note = nil
             markdown = ""
             return
@@ -71,7 +76,7 @@ struct NotepadView: View {
     }
 
     private func saveMarkdown(_ text: String) {
-        guard let documentID = activeDocument?.id else { return }
+        guard let documentID = readerSession.activeDocumentID else { return }
 
         if note == nil {
             let newNote = DocumentNote(documentID: documentID, markdown: text)
@@ -91,7 +96,8 @@ struct NotepadView: View {
 }
 
 #Preview {
-    NotepadView(activeDocument: .constant(nil))
+    NotepadView()
         .frame(width: 340, height: 300)
         .background(Color(nsColor: .windowBackgroundColor))
+        .environmentObject(ReaderSession())
 }
