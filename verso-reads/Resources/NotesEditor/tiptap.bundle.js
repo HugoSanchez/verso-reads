@@ -24668,4 +24668,11 @@ img.ProseMirror-separator {
       isApplyingContent = false;
     }, 0);
   };
+  window.VersoNotesGetMarkdown = () => {
+    if (!editorInstance) {
+      return "";
+    }
+    const serializer = markdownSerializer != null ? markdownSerializer : defaultMarkdownSerializer;
+    return serializer.serialize(editorInstance.state.doc);
+  };
 })();

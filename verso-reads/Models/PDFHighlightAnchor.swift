@@ -5,20 +5,19 @@
 
 import Foundation
 
-struct PDFHighlightAnchor: Codable {
+struct PDFHighlightAnchor: Codable, Equatable {
     var type: String = "pdfHighlight"
     var fragments: [PDFHighlightFragment]
 }
 
-struct PDFHighlightFragment: Codable {
+struct PDFHighlightFragment: Codable, Equatable {
     var pageIndex: Int
     var rects: [NormalizedRect]
 }
 
-struct NormalizedRect: Codable {
+struct NormalizedRect: Codable, Equatable {
     var x: Double
     var y: Double
     var w: Double
     var h: Double
 }
-

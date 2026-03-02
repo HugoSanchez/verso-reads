@@ -12,6 +12,7 @@ struct ChatView: View {
     @Binding var context: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
+    @Binding var pinnedPreview: PinnedChatPreview?
     @Binding var activeDocument: LibraryDocument?
 
     @State private var inputText: String = ""
@@ -40,7 +41,7 @@ struct ChatView: View {
 
     private var chatContent: some View {
         Group {
-            if messages.isEmpty {
+            if messages.isEmpty && pinnedPreview == nil {
                 VStack {
                     Spacer()
                     Text("No chats yet")
@@ -50,15 +51,30 @@ struct ChatView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(messages) { message in
-                            chatBubble(for: message)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if let preview = pinnedPreview {
+                                pinnedPreviewCard(preview)
+                            }
+                            ForEach(messages) { message in
+                                chatBubble(for: message)
+                                    .id(message.id)
+                            }
+                        }
+                        .padding(16)
+                    }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: pinnedPreview?.assistantMessageID) { _, newValue in
+                        guard let targetID = newValue else { return }
+                        guard messages.contains(where: { $0.id == targetID }) else { return }
+                        DispatchQueue.main.async {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                proxy.scrollTo(targetID, anchor: .center)
+                            }
                         }
                     }
-                    .padding(16)
                 }
-                .scrollIndicators(.hidden)
             }
         }
     }
@@ -146,13 +162,23 @@ struct ChatView: View {
         } else {
             HStack {
                 if message.role == .assistant {
-                    bubbleText(
-                        renderedContent(for: message),
-                        messageID: message.id,
-                        alignment: .leading,
-                        background: Color.clear,
-                        maxWidth: .infinity
-                    )
+                    VStack(alignment: .leading, spacing: 6) {
+                        bubbleText(
+                            renderedContent(for: message),
+                            messageID: message.id,
+                            alignment: .leading,
+                            background: Color.clear,
+                            maxWidth: .infinity
+                        )
+                        if canPin(message) {
+                            Button("Pin answer to text") {
+                                pinAnswer(message)
+                            }
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .buttonStyle(.plain)
+                        }
+                    }
                     Spacer(minLength: 20)
                 } else {
                     Spacer(minLength: 20)
@@ -211,10 +237,32 @@ struct ChatView: View {
         errorMessage = nil
 
         let historyMessages = messages
+        let selectionAnchor = context?.anchorData
+        let selectionText = context?.text
+#if DEBUG
+        print("[Chat] sendMessage selectionAnchor=\(selectionAnchor != nil) selectionTextCount=\(selectionText?.count ?? 0)")
+#endif
         let assistantID = UUID()
-        let userMessage = ChatMessage(role: .user, content: trimmed)
+        let userMessage = ChatMessage(
+            role: .user,
+            content: trimmed,
+            sourceAnchorData: selectionAnchor,
+            sourceSelectionText: selectionText
+        )
         messages.append(userMessage)
-        messages.append(ChatMessage(id: assistantID, role: .assistant, content: ""))
+        messages.append(
+            ChatMessage(
+                id: assistantID,
+                role: .assistant,
+                content: "",
+                sourceAnchorData: selectionAnchor,
+                sourceSelectionText: selectionText,
+                promptMessageID: userMessage.id
+            )
+        )
+#if DEBUG
+        print("[Chat] created assistantMessage id=\(assistantID) anchor=\(selectionAnchor != nil)")
+#endif
         renderNow(for: userMessage.id)
         renderNow(for: assistantID)
         inputText = ""
@@ -241,6 +289,12 @@ struct ChatView: View {
                     isSending = false
                     renderNow(for: assistantID)
                     persistAssistantMessageIfNeeded(id: assistantID)
+#if DEBUG
+                    if let message = messages.first(where: { $0.id == assistantID }) {
+                        let contentCount = message.content.count
+                        print("[Chat] assistant finished id=\(assistantID) contentCount=\(contentCount) anchor=\(message.sourceAnchorData != nil)")
+                    }
+#endif
                 }
             } catch {
                 await MainActor.run {
@@ -272,6 +326,88 @@ struct ChatView: View {
             return "Context:\n\(context)\n\nQuestion:\n\(question)"
         }
         return question
+    }
+
+    private func canPin(_ message: ChatMessage) -> Bool {
+        guard message.role == .assistant else { return false }
+        guard message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else { return false }
+        guard message.sourceAnchorData != nil else { return false }
+        return activeDocument != nil
+    }
+
+    @MainActor
+    private func pinAnswer(_ message: ChatMessage) {
+        guard let documentID = activeDocument?.id else { return }
+        guard let anchorData = message.sourceAnchorData else { return }
+
+        let existingDescriptor = FetchDescriptor<Annotation>()
+        if let existing = try? modelContext.fetch(existingDescriptor),
+           existing.contains(where: { annotation in
+               annotation.documentID == documentID &&
+               annotation.kind == .chatPin &&
+               annotation.chatMessageID == message.id
+           }) {
+            return
+        }
+
+        let promptText = message.promptMessageID.flatMap { promptID in
+            messages.first(where: { $0.id == promptID })?.content
+        }
+
+        let annotation = Annotation(
+            documentID: documentID,
+            kind: .chatPin,
+            anchorData: anchorData,
+            quote: message.sourceSelectionText,
+            body: message.content,
+            chatMessageID: message.id,
+            chatPromptID: message.promptMessageID,
+            chatPromptSnapshot: promptText
+        )
+
+        modelContext.insert(annotation)
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save chat pin: \(error)")
+        }
+    }
+
+    @ViewBuilder
+    private func pinnedPreviewCard(_ preview: PinnedChatPreview) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                Text("Pinned")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.black.opacity(0.4))
+                Spacer()
+                Button(action: { pinnedPreview = nil }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.35))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let userText = preview.userText, userText.isEmpty == false {
+                Text(userText)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.black.opacity(0.55))
+                    .lineLimit(2)
+            }
+
+            MarkdownTextView(text: renderMarkdown(preview.assistantText))
+                .padding(.leading, 8)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(Color.accentColor.opacity(0.4))
+                        .frame(width: 2)
+                }
+        }
+        .padding(.bottom, 12)
     }
 
     private func buildConversationMessages(from history: [ChatMessage], userPrompt: String) -> [OpenAIClient.Message] {
@@ -433,7 +569,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
-        context.coordinator.updateHeight()
+        context.coordinator.scheduleHeightUpdate()
 
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -456,7 +592,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
         }
-        context.coordinator.updateHeight()
+        context.coordinator.scheduleHeightUpdate()
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -468,6 +604,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         weak var textView: NSTextView?
 
         let onSubmit: () -> Void
+        private var pendingHeight: CGFloat?
 
         init(
             text: Binding<String>,
@@ -492,7 +629,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             text = textView.string
-            updateHeight()
+            scheduleHeightUpdate()
         }
 
         func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -514,7 +651,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
             isFocused = false
         }
 
-        func updateHeight() {
+        func scheduleHeightUpdate() {
             guard let textView else { return }
             guard let textContainer = textView.textContainer else { return }
             textView.layoutManager?.ensureLayout(for: textContainer)
@@ -523,8 +660,15 @@ private struct AutoGrowingTextView: NSViewRepresentable {
             let lineHeight = font.ascender - font.descender + font.leading
             let maxHeight = lineHeight * CGFloat(maxLines) + (textView.textContainerInset.height * 2)
             let targetHeight = max(lineHeight, min(usedRect.height + (textView.textContainerInset.height * 2), maxHeight))
-            if abs(height - targetHeight) > 0.5 {
-                height = targetHeight
+            guard abs(height - targetHeight) > 0.5 else { return }
+            guard pendingHeight != targetHeight else { return }
+            pendingHeight = targetHeight
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let newHeight = self.pendingHeight
+                self.pendingHeight = nil
+                guard let newHeight, abs(self.height - newHeight) > 0.5 else { return }
+                self.height = newHeight
             }
         }
     }
@@ -535,6 +679,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         context: .constant(nil),
         messages: .constant([]),
         settings: OpenAISettingsStore(),
+        pinnedPreview: .constant(nil),
         activeDocument: .constant(nil)
     )
         .frame(width: 340, height: 300)

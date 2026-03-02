@@ -14,6 +14,7 @@ final class PDFReaderController: NSObject, ObservableObject {
     private var desiredScaleFactor: CGFloat?
     private var isApplyingScaleProgrammatically = false
     @Published private(set) var selectionInfo: SelectionInfo?
+    @Published private(set) var viewportVersion: Int = 0
 
     private weak var observedScrollView: NSScrollView?
     private weak var observedContentView: NSView?
@@ -40,14 +41,11 @@ final class PDFReaderController: NSObject, ObservableObject {
 
     func applyDesiredScaleFactorIfNeeded(availableWidth: CGFloat) {
         guard let pdfView, let desiredScaleFactor else { return }
-        guard let fitWidthScale = fitWidthScaleFactor(for: pdfView, availableWidth: availableWidth) else { return }
-
-        let clamped = min(desiredScaleFactor, fitWidthScale)
         pdfView.autoScales = false
 
-        if abs(pdfView.scaleFactor - clamped) > 0.0001 {
+        if abs(pdfView.scaleFactor - desiredScaleFactor) > 0.0001 {
             isApplyingScaleProgrammatically = true
-            pdfView.scaleFactor = clamped
+            pdfView.scaleFactor = desiredScaleFactor
             DispatchQueue.main.async { [weak self] in
                 self?.isApplyingScaleProgrammatically = false
             }
@@ -85,9 +83,176 @@ final class PDFReaderController: NSObject, ObservableObject {
         selectionInfo = nil
     }
 
+    func scrollTo(anchor: PDFHighlightAnchor) {
+        guard let pdfView, let document = pdfView.document else { return }
+        let sortedFragments = anchor.fragments.sorted { $0.pageIndex < $1.pageIndex }
+        guard let firstFragment = sortedFragments.first,
+              let page = document.page(at: firstFragment.pageIndex),
+              let rect = firstFragment.rects.first
+        else { return }
+
+        let pageBounds = page.bounds(for: .mediaBox)
+        let targetRect = CGRect(
+            x: pageBounds.minX + CGFloat(rect.x) * pageBounds.width,
+            y: pageBounds.minY + CGFloat(rect.y) * pageBounds.height,
+            width: CGFloat(rect.w) * pageBounds.width,
+            height: CGFloat(rect.h) * pageBounds.height
+        )
+        let destinationPoint = CGPoint(x: targetRect.minX, y: targetRect.maxY)
+        let destination = PDFDestination(page: page, at: destinationPoint)
+        pdfView.go(to: destination)
+    }
+
+    func overlayRect(for anchor: PDFHighlightAnchor) -> CGRect? {
+        guard let pdfView, let document = pdfView.document else { return nil }
+
+        var unionRect = CGRect.null
+        for fragment in anchor.fragments {
+            guard let page = document.page(at: fragment.pageIndex) else { continue }
+            let pageBounds = page.bounds(for: .mediaBox)
+
+            for rect in fragment.rects {
+                let bounds = CGRect(
+                    x: pageBounds.minX + CGFloat(rect.x) * pageBounds.width,
+                    y: pageBounds.minY + CGFloat(rect.y) * pageBounds.height,
+                    width: CGFloat(rect.w) * pageBounds.width,
+                    height: CGFloat(rect.h) * pageBounds.height
+                )
+                let viewRect = pdfView.convert(bounds, from: page)
+                unionRect = unionRect.union(viewRect)
+            }
+        }
+
+        guard unionRect.isNull == false, unionRect.isEmpty == false else { return nil }
+        guard pdfView.bounds.intersects(unionRect) else { return nil }
+
+        if pdfView.isFlipped {
+            return unionRect
+        }
+
+        return CGRect(
+            x: unionRect.minX,
+            y: pdfView.bounds.height - unionRect.maxY,
+            width: unionRect.width,
+            height: unionRect.height
+        )
+    }
+
     func makeHighlightAnchorFromSelection() -> (anchor: PDFHighlightAnchor, quote: String)? {
         guard let pdfView, let selection = pdfView.currentSelection, let document = pdfView.document else { return nil }
+        return makeHighlightAnchor(from: selection, document: document)
+    }
 
+    private func startObservingSelection(in pdfView: PDFView) {
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(handleSelectionChanged), name: .PDFViewSelectionChanged, object: pdfView)
+        center.addObserver(self, selector: #selector(handleScaleChanged), name: .PDFViewScaleChanged, object: pdfView)
+        center.addObserver(self, selector: #selector(handleVisiblePagesChanged), name: .PDFViewVisiblePagesChanged, object: pdfView)
+
+        if let scrollView = pdfView.enclosingScrollView {
+            observedScrollView = scrollView
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            observedContentView = scrollView.contentView
+            center.addObserver(self, selector: #selector(handleBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+        }
+
+        updateSelectionInfo()
+    }
+
+    private func stopObservingSelection() {
+        NotificationCenter.default.removeObserver(self)
+        observedScrollView = nil
+        observedContentView = nil
+        selectionInfo = nil
+    }
+
+    @objc private func handleSelectionChanged() {
+        updateSelectionInfo()
+    }
+
+    @objc private func handleScaleChanged() {
+        if isApplyingScaleProgrammatically == false, let pdfView, pdfView.autoScales == false {
+            desiredScaleFactor = pdfView.scaleFactor
+        }
+        updateSelectionInfo()
+        bumpViewportVersion()
+    }
+
+    @objc private func handleVisiblePagesChanged() {
+        updateSelectionInfo()
+        bumpViewportVersion()
+    }
+
+    @objc private func handleBoundsChanged() {
+        updateSelectionInfo()
+        bumpViewportVersion()
+    }
+
+    private func updateSelectionInfo() {
+        guard let pdfView else {
+            selectionInfo = nil
+            return
+        }
+        guard let selection = pdfView.currentSelection,
+              let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              text.isEmpty == false
+        else {
+            selectionInfo = nil
+            return
+        }
+
+        let unionRect = selectionBoundsInView(selection: selection, pdfView: pdfView)
+        guard unionRect.isNull == false, unionRect.isEmpty == false else {
+            selectionInfo = nil
+            return
+        }
+        guard pdfView.bounds.intersects(unionRect) else {
+            selectionInfo = nil
+            return
+        }
+
+        guard let anchorResult = makeHighlightAnchor(from: selection, document: pdfView.document) else {
+            selectionInfo = nil
+            return
+        }
+
+        let adjustedRect: CGRect
+        if pdfView.isFlipped {
+            adjustedRect = unionRect
+        } else {
+            adjustedRect = CGRect(
+                x: unionRect.minX,
+                y: pdfView.bounds.height - unionRect.maxY,
+                width: unionRect.width,
+                height: unionRect.height
+            )
+        }
+
+        selectionInfo = SelectionInfo(text: text, quote: anchorResult.quote, rect: adjustedRect, anchor: anchorResult.anchor)
+    }
+
+    private func bumpViewportVersion() {
+        viewportVersion &+= 1
+    }
+
+    private func selectionBoundsInView(selection: PDFSelection, pdfView: PDFView) -> CGRect {
+        guard let document = pdfView.document else { return .null }
+        var unionRect = CGRect.null
+
+        for page in selection.pages {
+            let pageIndex = document.index(for: page)
+            guard pageIndex != NSNotFound else { continue }
+            let bounds = selection.bounds(for: page)
+            guard bounds.isNull == false, bounds.isEmpty == false else { continue }
+            let viewRect = pdfView.convert(bounds, from: page)
+            unionRect = unionRect.union(viewRect)
+        }
+
+        return unionRect
+    }
+
+    private func makeHighlightAnchor(from selection: PDFSelection, document: PDFDocument?) -> (anchor: PDFHighlightAnchor, quote: String)? {
+        guard let document else { return nil }
         let quote = selection.string ?? ""
         let lineSelections = selection.selectionsByLine()
         let selections = lineSelections.isEmpty ? [selection] : lineSelections
@@ -127,105 +292,11 @@ final class PDFReaderController: NSObject, ObservableObject {
         return (PDFHighlightAnchor(fragments: fragments), quote)
     }
 
-    private func startObservingSelection(in pdfView: PDFView) {
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(handleSelectionChanged), name: .PDFViewSelectionChanged, object: pdfView)
-        center.addObserver(self, selector: #selector(handleScaleChanged), name: .PDFViewScaleChanged, object: pdfView)
-        center.addObserver(self, selector: #selector(handleVisiblePagesChanged), name: .PDFViewVisiblePagesChanged, object: pdfView)
-
-        if let scrollView = pdfView.enclosingScrollView {
-            observedScrollView = scrollView
-            scrollView.contentView.postsBoundsChangedNotifications = true
-            observedContentView = scrollView.contentView
-            center.addObserver(self, selector: #selector(handleBoundsChanged), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
-        }
-
-        updateSelectionInfo()
-    }
-
-    private func stopObservingSelection() {
-        NotificationCenter.default.removeObserver(self)
-        observedScrollView = nil
-        observedContentView = nil
-        selectionInfo = nil
-    }
-
-    @objc private func handleSelectionChanged() {
-        updateSelectionInfo()
-    }
-
-    @objc private func handleScaleChanged() {
-        if isApplyingScaleProgrammatically == false, let pdfView, pdfView.autoScales == false {
-            desiredScaleFactor = pdfView.scaleFactor
-        }
-        updateSelectionInfo()
-    }
-
-    @objc private func handleVisiblePagesChanged() {
-        updateSelectionInfo()
-    }
-
-    @objc private func handleBoundsChanged() {
-        updateSelectionInfo()
-    }
-
-    private func updateSelectionInfo() {
-        guard let pdfView else {
-            selectionInfo = nil
-            return
-        }
-        guard let selection = pdfView.currentSelection,
-              let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines),
-              text.isEmpty == false
-        else {
-            selectionInfo = nil
-            return
-        }
-
-        let unionRect = selectionBoundsInView(selection: selection, pdfView: pdfView)
-        guard unionRect.isNull == false, unionRect.isEmpty == false else {
-            selectionInfo = nil
-            return
-        }
-        guard pdfView.bounds.intersects(unionRect) else {
-            selectionInfo = nil
-            return
-        }
-
-        let adjustedRect: CGRect
-        if pdfView.isFlipped {
-            adjustedRect = unionRect
-        } else {
-            adjustedRect = CGRect(
-                x: unionRect.minX,
-                y: pdfView.bounds.height - unionRect.maxY,
-                width: unionRect.width,
-                height: unionRect.height
-            )
-        }
-
-        selectionInfo = SelectionInfo(text: text, rect: adjustedRect)
-    }
-
-    private func selectionBoundsInView(selection: PDFSelection, pdfView: PDFView) -> CGRect {
-        guard let document = pdfView.document else { return .null }
-        var unionRect = CGRect.null
-
-        for page in selection.pages {
-            let pageIndex = document.index(for: page)
-            guard pageIndex != NSNotFound else { continue }
-            let bounds = selection.bounds(for: page)
-            guard bounds.isNull == false, bounds.isEmpty == false else { continue }
-            let viewRect = pdfView.convert(bounds, from: page)
-            unionRect = unionRect.union(viewRect)
-        }
-
-        return unionRect
-    }
-
     struct SelectionInfo: Equatable {
         let text: String
+        let quote: String
         let rect: CGRect
+        let anchor: PDFHighlightAnchor
     }
 
     private func fitWidthScaleFactor(for pdfView: PDFView, availableWidth: CGFloat) -> CGFloat? {

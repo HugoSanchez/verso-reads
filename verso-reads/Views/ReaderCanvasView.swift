@@ -10,17 +10,23 @@ import UniformTypeIdentifiers
 
 struct ReaderCanvasView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var readerSession: ReaderSession
+    @Query(sort: \Annotation.createdAt, order: .forward) private var annotations: [Annotation]
 
     @Binding var isSidebarVisible: Bool
     @Binding var isRightPanelVisible: Bool
     @Binding var activeDocument: LibraryDocument?
     @Binding var pdfDocument: PDFDocument?
+    @Binding var activePinAnchor: Data?
     let onAddSelectionToChat: (ChatContext) -> Void
+    let onShowPinnedAnswer: (Annotation) -> Void
+    let onTogglePinHighlight: () -> Void
+    let onClearPinHighlight: () -> Void
     let selectionDismiss: SelectionDismissController
 
     @StateObject private var pdfController = PDFReaderController()
-    @State private var highlights: [Annotation] = []
     @State private var highlightColor: HighlightColor = .yellow
+    @State private var lastSelectionInfo: PDFReaderController.SelectionInfo?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,9 +60,12 @@ struct ReaderCanvasView: View {
                         ZStack(alignment: .topLeading) {
                             PDFKitView(
                                 document: pdfDocument,
-                                highlights: highlights,
+                                highlights: highlightAnnotations,
+                                chatPins: chatPinAnnotations,
+                                activePinAnchor: activePinAnchor ?? readerSession.activeNoteQuoteAnchor,
                                 controller: pdfController,
-                                availableWidth: proxy.size.width
+                                availableWidth: proxy.size.width,
+                                onPinTapped: handlePinTapped
                             )
                             selectionOverlay(in: proxy.size)
                         }
@@ -68,14 +77,19 @@ struct ReaderCanvasView: View {
             }
         }
         .onAppear {
-            loadHighlights()
             selectionDismiss.clearSelection = { pdfController.clearSelection() }
-        }
-        .onChange(of: activeDocument?.id) { _, _ in
-            loadHighlights()
         }
         .onReceive(pdfController.$selectionInfo) { selection in
             selectionDismiss.isActive = selection != nil
+            if let selection {
+                lastSelectionInfo = selection
+            }
+        }
+        .onReceive(readerSession.noteQuoteNavigation) { annotationID in
+            navigateToNoteQuote(annotationID)
+        }
+        .onChange(of: activeDocument?.id) { _, _ in
+            lastSelectionInfo = nil
         }
     }
 
@@ -109,7 +123,6 @@ struct ReaderCanvasView: View {
             let storedURL = try LibraryStore.fileURL(for: document)
             activeDocument = document
             pdfDocument = PDFDocument(url: storedURL)
-            loadHighlights()
             Task {
                 await RAGIngestionManager.shared.enqueue(document: document, fileURL: storedURL)
             }
@@ -132,25 +145,6 @@ struct ReaderCanvasView: View {
         }
     }
 
-    private func loadHighlights() {
-        guard let documentID = activeDocument?.id else {
-            highlights = []
-            return
-        }
-
-        do {
-            let predicate = #Predicate<Annotation> { annotation in
-                annotation.documentID == documentID && annotation.kindRawValue == "highlight"
-            }
-            var descriptor = FetchDescriptor<Annotation>(predicate: predicate)
-            descriptor.sortBy = [SortDescriptor(\Annotation.createdAt, order: .forward)]
-            highlights = try modelContext.fetch(descriptor)
-        } catch {
-            print("Failed to load highlights: \(error)")
-            highlights = []
-        }
-    }
-
     private func addHighlight(color: HighlightColor) {
         guard let documentID = activeDocument?.id else { return }
         guard let result = pdfController.makeHighlightAnchorFromSelection() else { return }
@@ -166,7 +160,6 @@ struct ReaderCanvasView: View {
             )
             modelContext.insert(annotation)
             try modelContext.save()
-            highlights.append(annotation)
             pdfController.clearSelection()
         } catch {
             print("Failed to save highlight: \(error)")
@@ -177,36 +170,81 @@ struct ReaderCanvasView: View {
     private func selectionOverlay(in size: CGSize) -> some View {
         if let selection = pdfController.selectionInfo {
             let position = selectionOverlayPosition(for: selection.rect, in: size)
-            Button {
-                onAddSelectionToChat(ChatContext(text: selection.text))
-                pdfController.clearSelection()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text("Add to chat")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(0.95))
+            HStack(spacing: 8) {
+                selectionActionButton(
+                    title: "Add to chat",
+                    systemImage: "plus",
+                    action: {
+#if DEBUG
+                        print("[Chat] add-to-chat tapped selectionTextCount=\(selection.text.count)")
+#endif
+                        if let anchorData = try? JSONEncoder().encode(selection.anchor) {
+#if DEBUG
+                            print("[Chat] anchor created fragments=\(selection.anchor.fragments.count) quoteCount=\(selection.quote.count)")
+#endif
+                            onAddSelectionToChat(ChatContext(text: selection.text, anchorData: anchorData))
+                        } else {
+#if DEBUG
+                            print("[Chat] anchor creation failed")
+#endif
+                            onAddSelectionToChat(ChatContext(text: selection.text))
+                        }
+                        pdfController.clearSelection()
+                    }
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
+
+                selectionActionButton(
+                    title: "Add to notes",
+                    systemImage: "note.text",
+                    action: addSelectionToNotes
                 )
-                .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
             }
-            .buttonStyle(.plain)
             .position(position)
         }
     }
 
+    private func handlePinTapped(_ pinID: UUID) {
+        guard let annotation = chatPinAnnotations.first(where: { $0.id == pinID }) else { return }
+
+        // Clear any active note quote highlight
+        readerSession.activeNoteQuoteAnchor = nil
+
+        // If tapping the same pin that's already shown, just toggle the highlight
+        if let currentAnchor = activePinAnchor, currentAnchor == annotation.anchorData {
+            onTogglePinHighlight()
+            return
+        }
+
+        // Show new pinned answer
+        onShowPinnedAnswer(annotation)
+    }
+
+    private func selectionActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.95))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+
     private func selectionOverlayPosition(for rect: CGRect, in size: CGSize) -> CGPoint {
         let padding: CGFloat = 10
-        let fallbackWidth: CGFloat = 120
+        let fallbackWidth: CGFloat = 220
         let fallbackHeight: CGFloat = 26
 
         var x = rect.midX
@@ -228,6 +266,75 @@ struct ReaderCanvasView: View {
 
         return CGPoint(x: x, y: y)
     }
+
+    private func addSelectionToNotes() {
+        guard let documentID = activeDocument?.id else { return }
+        guard let selection = pdfController.selectionInfo ?? lastSelectionInfo else { return }
+
+        do {
+            let data = try JSONEncoder().encode(selection.anchor)
+            let annotation = Annotation(
+                documentID: documentID,
+                kind: .noteQuote,
+                anchorData: data,
+                quote: selection.quote
+            )
+            modelContext.insert(annotation)
+            try modelContext.save()
+            readerSession.pendingNoteQuote = NoteQuoteInsertion(
+                annotationID: annotation.id,
+                documentID: documentID,
+                quote: selection.quote
+            )
+            print("[NoteQuote] Saved annotation=\(annotation.id) doc=\(documentID)")
+            isRightPanelVisible = true
+            pdfController.clearSelection()
+        } catch {
+            print("Failed to save note quote: \(error)")
+        }
+    }
+
+    private func navigateToNoteQuote(_ annotationID: UUID) {
+        do {
+            let predicate = #Predicate<Annotation> { annotation in
+                annotation.id == annotationID
+            }
+            var descriptor = FetchDescriptor<Annotation>(predicate: predicate)
+            descriptor.fetchLimit = 1
+            guard let annotation = try modelContext.fetch(descriptor).first else { return }
+            guard annotation.kind == .noteQuote else { return }
+            let anchor = try JSONDecoder().decode(PDFHighlightAnchor.self, from: annotation.anchorData)
+            print("[NoteQuote] Navigate id=\(annotationID) fragments=\(anchor.fragments.count)")
+
+            // Toggle highlight if clicking the same quote, otherwise show new highlight
+            if readerSession.activeNoteQuoteAnchor == annotation.anchorData {
+                readerSession.activeNoteQuoteAnchor = nil
+            } else {
+                // Clear pin highlight and show note quote highlight
+                onClearPinHighlight()
+                readerSession.activeNoteQuoteAnchor = annotation.anchorData
+                pdfController.scrollTo(anchor: anchor)
+            }
+        } catch {
+            print("Failed to navigate to note quote: \(error)")
+        }
+    }
+
+    private var filteredAnnotations: [Annotation] {
+        guard let documentID = activeDocument?.id else { return [] }
+        return annotations.filter { annotation in
+            annotation.documentID == documentID &&
+            (annotation.kind == .highlight || annotation.kind == .chatPin)
+        }
+    }
+
+    private var highlightAnnotations: [Annotation] {
+        filteredAnnotations.filter { $0.kind == .highlight }
+    }
+
+    private var chatPinAnnotations: [Annotation] {
+        filteredAnnotations.filter { $0.kind == .chatPin }
+    }
 }
 
 #Preview {
@@ -236,10 +343,15 @@ struct ReaderCanvasView: View {
         isRightPanelVisible: .constant(false),
         activeDocument: .constant(nil),
         pdfDocument: .constant(nil),
+        activePinAnchor: .constant(nil),
         onAddSelectionToChat: { _ in },
+        onShowPinnedAnswer: { _ in },
+        onTogglePinHighlight: {},
+        onClearPinHighlight: {},
         selectionDismiss: SelectionDismissController()
     )
     .modelContainer(for: [LibraryDocument.self, Annotation.self], inMemory: true)
+    .environmentObject(ReaderSession())
     .frame(width: 800, height: 600)
     .background(Color.white)
 }

@@ -10,6 +10,7 @@ struct RightPanelView: View {
     @Binding var chatContext: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
+    @Binding var pinnedPreview: PinnedChatPreview?
     @Binding var activeDocument: LibraryDocument?
     @Binding var isRightPanelVisible: Bool
     let isSidebarVisible: Bool
@@ -39,9 +40,10 @@ struct RightPanelView: View {
                     context: $chatContext,
                     messages: $messages,
                     settings: settings,
+                    pinnedPreview: $pinnedPreview,
                     activeDocument: $activeDocument
                 )
-                    .padding(.top, 8)
+                .padding(.top, 8)
             }
         }
         .frame(width: CGFloat(panelWidth.wrappedValue))
@@ -206,6 +208,7 @@ private struct RightPanelResizeHandle: NSViewRepresentable {
             chatContext: .constant(nil),
             messages: .constant([]),
             settings: OpenAISettingsStore(),
+            pinnedPreview: .constant(nil),
             activeDocument: .constant(nil),
             isRightPanelVisible: .constant(true),
             isSidebarVisible: true

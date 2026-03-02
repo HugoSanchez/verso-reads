@@ -48,6 +48,14 @@
 - [ ] Decide whether to keep inline HTML fallback or require bundled resources only.
 - [ ] Investigate WKWebView focus/typing issue if fallback still doesn't accept input.
 
+## Plan: Add Selection to Notes (Blockquote + Jump)
+
+- [x] Define data model for note quotes (new `noteQuote` annotation kind + anchor/quote) tied to document.
+- [x] Add selection overlay action for "Add to notes".
+- [x] Persist quote anchor + markdown insertion with link target.
+- [x] Intercept note link clicks and scroll PDF to anchor.
+- [ ] Verify multi-quote insertion and navigation across pages.
+
 - [x] Add a lightweight Settings screen rendered in the main reader area when the sidebar gear is selected.
 - [x] Implement Keychain storage for the user’s OpenAI API key (local‑only), plus a simple model picker defaulting to `gpt-5.2`.
 - [x] Build an `OpenAIClient` service using the Responses API with SSE streaming (`stream=true`) over URLSession.

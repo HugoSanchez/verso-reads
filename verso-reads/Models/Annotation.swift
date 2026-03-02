@@ -8,7 +8,7 @@ import SwiftData
 
 enum AnnotationKind: String, Codable {
     case highlight
-    case note
+    case noteQuote
     case comment
     case chatPin
 }
@@ -21,6 +21,9 @@ final class Annotation {
     var anchorData: Data
     var quote: String?
     var body: String?
+    var chatMessageID: UUID?
+    var chatPromptID: UUID?
+    var chatPromptSnapshot: String?
     var colorRawValue: String?
     var createdAt: Date
     var updatedAt: Date
@@ -37,6 +40,9 @@ final class Annotation {
         anchorData: Data,
         quote: String? = nil,
         body: String? = nil,
+        chatMessageID: UUID? = nil,
+        chatPromptID: UUID? = nil,
+        chatPromptSnapshot: String? = nil,
         colorRawValue: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil
@@ -47,9 +53,11 @@ final class Annotation {
         self.anchorData = anchorData
         self.quote = quote
         self.body = body
+        self.chatMessageID = chatMessageID
+        self.chatPromptID = chatPromptID
+        self.chatPromptSnapshot = chatPromptSnapshot
         self.colorRawValue = colorRawValue
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }
 }
-

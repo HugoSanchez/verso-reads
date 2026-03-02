@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var didRestoreLastDocument = false
     @State private var chatContext: ChatContext?
     @State private var chatMessages: [ChatMessage] = []
+    @State private var pinnedPreview: PinnedChatPreview?
+    @State private var isPinHighlightVisible: Bool = true
     @StateObject private var selectionDismiss = SelectionDismissController()
     @StateObject private var openAISettings = OpenAISettingsStore()
     @State private var mainPanel: MainPanel = .reader
@@ -91,7 +93,11 @@ struct ContentView: View {
                 isRightPanelVisible: $isRightPanelVisible,
                 activeDocument: $activeDocument,
                 pdfDocument: $pdfDocument,
+                activePinAnchor: activePinAnchorBinding,
                 onAddSelectionToChat: addSelectionToChat,
+                onShowPinnedAnswer: showPinnedAnswer,
+                onTogglePinHighlight: togglePinHighlight,
+                onClearPinHighlight: clearPinHighlight,
                 selectionDismiss: selectionDismiss
             )
             .background(readerBackground)
@@ -101,6 +107,7 @@ struct ContentView: View {
                     chatContext: $chatContext,
                     messages: $chatMessages,
                     settings: openAISettings,
+                    pinnedPreview: $pinnedPreview,
                     activeDocument: $activeDocument,
                     isRightPanelVisible: $isRightPanelVisible,
                     isSidebarVisible: isSidebarVisible
@@ -172,8 +179,64 @@ struct ContentView: View {
 
     private func addSelectionToChat(_ context: ChatContext) {
         chatContext = context
+#if DEBUG
+        print("[Chat] selection added to chat anchor=\(context.anchorData != nil) wordCount=\(context.wordCount)")
+#endif
         isRightPanelVisible = true
         mainPanel = .reader
+    }
+
+    private func showPinnedAnswer(_ annotation: Annotation) {
+        guard annotation.kind == .chatPin else { return }
+        guard let assistantID = annotation.chatMessageID else { return }
+
+        let assistantText = fetchChatMessage(id: assistantID)?.content ?? annotation.body ?? ""
+        let userText: String?
+        if let promptID = annotation.chatPromptID,
+           let promptRecord = fetchChatMessage(id: promptID) {
+            userText = promptRecord.content
+        } else {
+            userText = annotation.chatPromptSnapshot
+        }
+
+        pinnedPreview = PinnedChatPreview(
+            id: annotation.id,
+            assistantMessageID: assistantID,
+            assistantText: assistantText,
+            userText: userText,
+            anchorData: annotation.anchorData
+        )
+        isPinHighlightVisible = true
+        isRightPanelVisible = true
+        mainPanel = .reader
+    }
+
+    private func fetchChatMessage(id: UUID) -> ChatMessageRecord? {
+        let predicate = #Predicate<ChatMessageRecord> { record in
+            record.id == id
+        }
+        let descriptor = FetchDescriptor<ChatMessageRecord>(predicate: predicate)
+        do {
+            return try modelContext.fetch(descriptor).first
+        } catch {
+            print("Failed to fetch chat message: \(error)")
+            return nil
+        }
+    }
+
+    private var activePinAnchorBinding: Binding<Data?> {
+        Binding(
+            get: { isPinHighlightVisible ? pinnedPreview?.anchorData : nil },
+            set: { _ in }
+        )
+    }
+
+    private func togglePinHighlight() {
+        isPinHighlightVisible.toggle()
+    }
+
+    private func clearPinHighlight() {
+        isPinHighlightVisible = false
     }
 
     private func showSettings() {
