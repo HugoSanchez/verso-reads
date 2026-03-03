@@ -10,18 +10,18 @@ import SwiftData
 final class DocumentNote {
     @Attribute(.unique) var id: UUID
     var documentID: UUID
-    var markdown: String
+    var content: String
     var updatedAt: Date
 
     init(
         id: UUID = UUID(),
         documentID: UUID,
-        markdown: String,
+        content: String,
         updatedAt: Date = Date()
     ) {
         self.id = id
         self.documentID = documentID
-        self.markdown = markdown
+        self.content = content
         self.updatedAt = updatedAt
     }
 }

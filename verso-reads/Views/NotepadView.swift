@@ -11,16 +11,16 @@ struct NotepadView: View {
     @EnvironmentObject private var readerSession: ReaderSession
     @Environment(\.modelContext) private var modelContext
 
-    @State private var markdown: String = ""
+    @State private var content: String = ""
     @State private var note: DocumentNote?
     @State private var saveTask: Task<Void, Never>?
     @State private var pendingQuoteInsertion: QuoteInsertion?
 
     var body: some View {
         NotesWebView(
-            markdown: markdown,
+            content: content,
             pendingQuoteInsertion: pendingQuoteInsertion,
-            onMarkdownChange: handleMarkdownChange,
+            onContentChange: handleContentChange,
             onQuoteClick: handleQuoteClick,
             onQuoteInserted: { pendingQuoteInsertion = nil }
         )
@@ -46,7 +46,7 @@ struct NotepadView: View {
 
         guard let documentID = readerSession.activeDocumentID else {
             note = nil
-            markdown = ""
+            content = ""
             return
         }
 
@@ -59,25 +59,20 @@ struct NotepadView: View {
             let results = try modelContext.fetch(descriptor)
             if let existing = results.first {
                 note = existing
-                markdown = existing.markdown
+                content = existing.content
             } else {
                 note = nil
-                markdown = ""
+                content = ""
             }
         } catch {
-            print("Failed to load note: \(error)")
             note = nil
-            markdown = ""
+            content = ""
         }
     }
 
-    private func handleMarkdownChange(_ newMarkdown: String) {
-        guard newMarkdown != markdown else { return }
-        // Safeguard: don't overwrite existing content with empty string
-        if newMarkdown.isEmpty && !markdown.isEmpty {
-            return
-        }
-        markdown = newMarkdown
+    private func handleContentChange(_ newContent: String) {
+        guard newContent != content else { return }
+        content = newContent
         scheduleSave()
     }
 
@@ -97,7 +92,6 @@ struct NotepadView: View {
             annotationId: insertion.annotationID
         )
 
-        // Clear the pending quote from session
         DispatchQueue.main.async {
             if readerSession.pendingNoteQuote?.annotationID == insertion.annotationID {
                 readerSession.pendingNoteQuote = nil
@@ -107,22 +101,22 @@ struct NotepadView: View {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = markdown
+        let snapshot = content
         saveTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            saveMarkdown(snapshot)
+            saveContent(snapshot)
         }
     }
 
-    private func saveMarkdown(_ text: String) {
+    private func saveContent(_ text: String) {
         guard let documentID = readerSession.activeDocumentID else { return }
 
         if note == nil {
-            let newNote = DocumentNote(documentID: documentID, markdown: text)
+            let newNote = DocumentNote(documentID: documentID, content: text)
             modelContext.insert(newNote)
             note = newNote
         } else {
-            note?.markdown = text
+            note?.content = text
             note?.updatedAt = Date()
         }
 
