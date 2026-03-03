@@ -5,6 +5,7 @@
 
 import SwiftUI
 import SwiftData
+import Combine
 
 struct NotepadView: View {
     @EnvironmentObject private var readerSession: ReaderSession
@@ -80,8 +81,29 @@ struct NotepadView: View {
         scheduleSave()
     }
 
-    private func handleQuoteClick(_ annotationId: UUID) {
-        readerSession.noteQuoteNavigation.send(annotationId)
+    private func handleQuoteClick(_ annotationIdPrefix: String) {
+        // The JS sends an 8-character prefix, we need to find the matching annotation
+        guard let documentID = readerSession.activeDocumentID else { return }
+
+        do {
+            let noteQuoteKind = AnnotationKind.noteQuote.rawValue
+            let predicate = #Predicate<Annotation> { annotation in
+                annotation.documentID == documentID && annotation.kindRawValue == noteQuoteKind
+            }
+            let descriptor = FetchDescriptor<Annotation>(predicate: predicate)
+            let annotations = try modelContext.fetch(descriptor)
+
+            // Find annotation whose ID starts with the prefix
+            let prefix = annotationIdPrefix.lowercased()
+            for annotation in annotations {
+                if annotation.id.uuidString.lowercased().hasPrefix(prefix) {
+                    readerSession.noteQuoteNavigation.send(annotation.id)
+                    return
+                }
+            }
+        } catch {
+            print("Failed to find annotation by prefix: \(error)")
+        }
     }
 
     private func handlePendingNoteQuote(_ insertion: NoteQuoteInsertion?) {

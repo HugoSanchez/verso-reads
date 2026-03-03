@@ -17,21 +17,9 @@ declare global {
   }
 }
 
-// Map to store annotation IDs for blockquotes (keyed by quote text hash)
-const blockquoteAnnotations = new Map<string, string>();
-
-// Simple hash for quote text to use as key
-const hashQuote = (text: string): string => {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return hash.toString(36);
-};
-
-// Marker format: [[q:shortId]] at start of blockquote
-const QUOTE_MARKER_REGEX = /^\[\[q:([a-f0-9-]+)\]\]\s*/i;
+// Regex to extract annotation ID prefix from blockquote text
+// Format: [abc12345] at start of quote (8 char UUID prefix)
+const QUOTE_PREFIX_REGEX = /^\[([a-f0-9]{8})\]\s*/i;
 
 let editorInstance: Editor | null = null;
 let isApplyingContent = false;
@@ -128,14 +116,14 @@ const initEditor = () => {
         const blockquote = target.closest("blockquote");
         if (!blockquote) return false;
 
-        // Get the text content and look up annotation ID
+        // Extract annotation ID prefix from blockquote text
         const text = blockquote.textContent || "";
-        const hash = hashQuote(text.trim());
-        const annotationId = blockquoteAnnotations.get(hash);
+        const match = text.match(QUOTE_PREFIX_REGEX);
 
-        if (annotationId) {
+        if (match) {
+          const annotationIdPrefix = match[1];
           event.preventDefault();
-          postMessage({ type: "quote-click", annotationId });
+          postMessage({ type: "quote-click", annotationId: annotationIdPrefix });
           return true;
         }
         return false;
@@ -185,37 +173,12 @@ window.VersoNotesSetContent = (markdown: string) => {
   const safeMarkdown = typeof markdown === "string" ? markdown : "";
   isApplyingContent = true;
 
-  // Clear existing annotations map
-  blockquoteAnnotations.clear();
-
-  // Pre-process markdown to extract quote markers and store them
-  // Blockquotes in markdown start with "> "
-  const processedMarkdown = safeMarkdown.replace(
-    /^(>\s*)(\[\[q:([a-f0-9-]+)\]\]\s*)/gim,
-    (match, prefix, marker, annotationId) => {
-      // We'll store the annotation after parsing, keyed by the remaining text
-      // For now, just remove the marker from the visible text
-      return prefix;
-    }
-  );
-
-  // Also extract and store annotation IDs by parsing blockquote content
-  const blockquoteRegex = /^>\s*\[\[q:([a-f0-9-]+)\]\]\s*(.+?)(?=\n(?!>)|$)/gims;
-  let match;
-  const tempMarkdown = safeMarkdown;
-  while ((match = blockquoteRegex.exec(tempMarkdown)) !== null) {
-    const annotationId = match[1];
-    const quoteText = match[2].trim();
-    const hash = hashQuote(quoteText);
-    blockquoteAnnotations.set(hash, annotationId);
-  }
-
   try {
     const parser = markdownParser;
     if (!parser) {
       return;
     }
-    const doc = parser.parse(processedMarkdown);
+    const doc = parser.parse(safeMarkdown);
     editorInstance.commands.setContent(doc, { emitUpdate: false });
   } catch (error) {
     editorInstance.commands.setContent("", { emitUpdate: false });
@@ -233,20 +196,7 @@ window.VersoNotesGetMarkdown = () => {
     return "";
   }
   const serializer = markdownSerializer ?? defaultMarkdownSerializer;
-  let markdown = serializer.serialize(editorInstance.state.doc);
-
-  // Re-insert quote markers into blockquotes
-  // Find blockquotes and add markers back if we have an annotation ID for them
-  markdown = markdown.replace(/^(>\s*)(.+?)$/gm, (match, prefix, content) => {
-    const hash = hashQuote(content.trim());
-    const annotationId = blockquoteAnnotations.get(hash);
-    if (annotationId) {
-      return `${prefix}[[q:${annotationId}]] ${content}`;
-    }
-    return match;
-  });
-
-  return markdown;
+  return serializer.serialize(editorInstance.state.doc);
 };
 
 window.VersoNotesInsertQuote = (quote: string, annotationId: string) => {
@@ -254,9 +204,9 @@ window.VersoNotesInsertQuote = (quote: string, annotationId: string) => {
     return;
   }
 
-  // Store the annotation mapping
-  const hash = hashQuote(quote.trim());
-  blockquoteAnnotations.set(hash, annotationId);
+  // Create prefix from first 8 chars of annotation ID
+  const prefix = annotationId.substring(0, 8).toLowerCase();
+  const prefixedQuote = `[${prefix}] ${quote}`;
 
   // Move cursor to end and insert blockquote
   editorInstance.commands.focus("end");
@@ -267,13 +217,13 @@ window.VersoNotesInsertQuote = (quote: string, annotationId: string) => {
     editorInstance.commands.insertContent("<p></p>");
   }
 
-  // Insert the blockquote
+  // Insert the blockquote with prefixed text
   editorInstance.commands.insertContent({
     type: "blockquote",
     content: [
       {
         type: "paragraph",
-        content: [{ type: "text", text: quote }],
+        content: [{ type: "text", text: prefixedQuote }],
       },
     ],
   });

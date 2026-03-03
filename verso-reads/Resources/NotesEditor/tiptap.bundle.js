@@ -24532,15 +24532,7 @@ img.ProseMirror-separator {
   };
 
   // notes-editor/index.ts
-  var blockquoteAnnotations = /* @__PURE__ */ new Map();
-  var hashQuote = (text2) => {
-    let hash = 0;
-    for (let i = 0; i < text2.length; i++) {
-      hash = (hash << 5) - hash + text2.charCodeAt(i);
-      hash |= 0;
-    }
-    return hash.toString(36);
-  };
+  var QUOTE_PREFIX_REGEX = /^\[([a-f0-9]{8})\]\s*/i;
   var editorInstance = null;
   var isApplyingContent = false;
   var updateTimer = null;
@@ -24630,11 +24622,11 @@ img.ProseMirror-separator {
           if (!blockquote2)
             return false;
           const text2 = blockquote2.textContent || "";
-          const hash = hashQuote(text2.trim());
-          const annotationId = blockquoteAnnotations.get(hash);
-          if (annotationId) {
+          const match2 = text2.match(QUOTE_PREFIX_REGEX);
+          if (match2) {
+            const annotationIdPrefix = match2[1];
             event.preventDefault();
-            postMessage({ type: "quote-click", annotationId });
+            postMessage({ type: "quote-click", annotationId: annotationIdPrefix });
             return true;
           }
           return false;
@@ -24677,28 +24669,12 @@ img.ProseMirror-separator {
     }
     const safeMarkdown = typeof markdown === "string" ? markdown : "";
     isApplyingContent = true;
-    blockquoteAnnotations.clear();
-    const processedMarkdown = safeMarkdown.replace(
-      /^(>\s*)(\[\[q:([a-f0-9-]+)\]\]\s*)/gim,
-      (match3, prefix, marker, annotationId) => {
-        return prefix;
-      }
-    );
-    const blockquoteRegex = /^>\s*\[\[q:([a-f0-9-]+)\]\]\s*(.+?)(?=\n(?!>)|$)/gims;
-    let match2;
-    const tempMarkdown = safeMarkdown;
-    while ((match2 = blockquoteRegex.exec(tempMarkdown)) !== null) {
-      const annotationId = match2[1];
-      const quoteText = match2[2].trim();
-      const hash = hashQuote(quoteText);
-      blockquoteAnnotations.set(hash, annotationId);
-    }
     try {
       const parser = markdownParser;
       if (!parser) {
         return;
       }
-      const doc3 = parser.parse(processedMarkdown);
+      const doc3 = parser.parse(safeMarkdown);
       editorInstance.commands.setContent(doc3, { emitUpdate: false });
     } catch (error2) {
       editorInstance.commands.setContent("", { emitUpdate: false });
@@ -24715,23 +24691,14 @@ img.ProseMirror-separator {
       return "";
     }
     const serializer = markdownSerializer != null ? markdownSerializer : defaultMarkdownSerializer;
-    let markdown = serializer.serialize(editorInstance.state.doc);
-    markdown = markdown.replace(/^(>\s*)(.+?)$/gm, (match2, prefix, content) => {
-      const hash = hashQuote(content.trim());
-      const annotationId = blockquoteAnnotations.get(hash);
-      if (annotationId) {
-        return `${prefix}[[q:${annotationId}]] ${content}`;
-      }
-      return match2;
-    });
-    return markdown;
+    return serializer.serialize(editorInstance.state.doc);
   };
   window.VersoNotesInsertQuote = (quote, annotationId) => {
     if (!editorInstance) {
       return;
     }
-    const hash = hashQuote(quote.trim());
-    blockquoteAnnotations.set(hash, annotationId);
+    const prefix = annotationId.substring(0, 8).toLowerCase();
+    const prefixedQuote = `[${prefix}] ${quote}`;
     editorInstance.commands.focus("end");
     const { state } = editorInstance;
     if (state.doc.content.size > 2) {
@@ -24742,7 +24709,7 @@ img.ProseMirror-separator {
       content: [
         {
           type: "paragraph",
-          content: [{ type: "text", text: quote }]
+          content: [{ type: "text", text: prefixedQuote }]
         }
       ]
     });
