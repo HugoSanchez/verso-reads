@@ -24532,7 +24532,23 @@ img.ProseMirror-separator {
   };
 
   // notes-editor/index.ts
-  var QUOTE_PREFIX_REGEX = /^\[([a-f0-9]{8})\]\s*/i;
+  var QUOTE_MARKER_REGEX = /^\[\[q:([a-f0-9-]+)\]\]\s*/i;
+  var CustomBlockquote = Blockquote.extend({
+    addAttributes() {
+      return {
+        annotationId: {
+          default: null,
+          parseHTML: (element) => element.getAttribute("data-annotation-id"),
+          renderHTML: (attributes) => {
+            if (!attributes.annotationId) {
+              return {};
+            }
+            return { "data-annotation-id": attributes.annotationId };
+          }
+        }
+      };
+    }
+  });
   var editorInstance = null;
   var isApplyingContent = false;
   var updateTimer = null;
@@ -24584,10 +24600,25 @@ img.ProseMirror-separator {
       if (!editorInstance || isApplyingContent) {
         return;
       }
-      const serializer = markdownSerializer != null ? markdownSerializer : defaultMarkdownSerializer;
-      const markdown = serializer.serialize(editorInstance.state.doc);
+      if (!markdownSerializer) {
+        return;
+      }
+      const markdown = markdownSerializer.serialize(editorInstance.state.doc);
       postMessage({ type: "markdown", markdown });
     }, 400);
+  };
+  var findBlockquoteAt = (doc3, pos) => {
+    let result = null;
+    doc3.nodesBetween(0, doc3.content.size, (node, nodePos) => {
+      if (node.type.name === "blockquote") {
+        if (nodePos <= pos && pos <= nodePos + node.nodeSize) {
+          result = { node, pos: nodePos };
+          return false;
+        }
+      }
+      return true;
+    });
+    return result;
   };
   var initEditor = () => {
     const host = document.querySelector("#editor");
@@ -24602,8 +24633,12 @@ img.ProseMirror-separator {
       element: host,
       extensions: [
         StarterKit.configure({
-          heading: { levels: [1, 2, 3] }
+          heading: { levels: [1, 2, 3] },
+          blockquote: false
+          // Disable default blockquote
         }),
+        CustomBlockquote,
+        // Use our custom blockquote
         Placeholder.configure({
           placeholder: "Start typing..."
         })
@@ -24615,18 +24650,13 @@ img.ProseMirror-separator {
           autocorrect: "on"
         },
         handleClick(view, pos, event) {
-          const target = event.target;
-          if (!target)
+          const found2 = findBlockquoteAt(view.state.doc, pos);
+          if (!found2)
             return false;
-          const blockquote2 = target.closest("blockquote");
-          if (!blockquote2)
-            return false;
-          const text2 = blockquote2.textContent || "";
-          const match2 = text2.match(QUOTE_PREFIX_REGEX);
-          if (match2) {
-            const annotationIdPrefix = match2[1];
+          const annotationId = found2.node.attrs.annotationId;
+          if (annotationId) {
             event.preventDefault();
-            postMessage({ type: "quote-click", annotationId: annotationIdPrefix });
+            postMessage({ type: "quote-click", annotationId });
             return true;
           }
           return false;
@@ -24656,6 +24686,17 @@ img.ProseMirror-separator {
         delete remappedNodes[key];
       }
     }
+    remappedNodes.blockquote = (state, node) => {
+      const annotationId = node.attrs.annotationId;
+      if (annotationId) {
+        state.wrapBlock("> ", null, node, () => {
+          state.text(`[[q:${annotationId}]] `);
+          state.renderContent(node);
+        });
+      } else {
+        state.wrapBlock("> ", null, node, () => state.renderContent(node));
+      }
+    };
     markdownSerializer = new MarkdownSerializer(
       remappedNodes,
       defaultMarkdownSerializer.marks
@@ -24675,7 +24716,8 @@ img.ProseMirror-separator {
         return;
       }
       const doc3 = parser.parse(safeMarkdown);
-      editorInstance.commands.setContent(doc3, { emitUpdate: false });
+      const processedDoc = extractQuoteMarkers(doc3);
+      editorInstance.commands.setContent(processedDoc, { emitUpdate: false });
     } catch (error2) {
       editorInstance.commands.setContent("", { emitUpdate: false });
     }
@@ -24686,19 +24728,85 @@ img.ProseMirror-separator {
       isApplyingContent = false;
     }, 0);
   };
+  var extractQuoteMarkers = (doc3) => {
+    if (!editorInstance)
+      return doc3;
+    const schema2 = editorInstance.schema;
+    const processNode = (node) => {
+      if (node.type.name === "blockquote") {
+        let annotationId = null;
+        let newContent = [];
+        node.forEach((child, offset, index) => {
+          if (index === 0 && child.type.name === "paragraph" && child.content.size > 0) {
+            const firstChild = child.content.firstChild;
+            if (firstChild && firstChild.isText && firstChild.text) {
+              const match2 = firstChild.text.match(QUOTE_MARKER_REGEX);
+              if (match2) {
+                annotationId = match2[1];
+                const newText = firstChild.text.replace(QUOTE_MARKER_REGEX, "");
+                if (newText) {
+                  const newTextNode = schema2.text(newText);
+                  const remainingContent = [newTextNode];
+                  child.content.forEach((c, o, i) => {
+                    if (i > 0)
+                      remainingContent.push(c);
+                  });
+                  const newParagraph = schema2.nodes.paragraph.create(
+                    child.attrs,
+                    remainingContent
+                  );
+                  newContent.push(newParagraph);
+                } else if (child.content.childCount > 1) {
+                  const remainingContent = [];
+                  child.content.forEach((c, o, i) => {
+                    if (i > 0)
+                      remainingContent.push(c);
+                  });
+                  const newParagraph = schema2.nodes.paragraph.create(
+                    child.attrs,
+                    remainingContent
+                  );
+                  newContent.push(newParagraph);
+                }
+                return;
+              }
+            }
+          }
+          newContent.push(processNode(child));
+        });
+        if (annotationId) {
+          return schema2.nodes.blockquote.create(
+            { annotationId },
+            newContent.length > 0 ? newContent : null
+          );
+        } else if (newContent.length > 0) {
+          return schema2.nodes.blockquote.create(node.attrs, newContent);
+        }
+      }
+      if (node.content.size > 0) {
+        const newContent = [];
+        node.forEach((child) => {
+          newContent.push(processNode(child));
+        });
+        return node.copy(node.content.replaceWith(0, node.content.size, newContent));
+      }
+      return node;
+    };
+    return processNode(doc3);
+  };
   window.VersoNotesGetMarkdown = () => {
     if (!editorInstance) {
       return "";
     }
-    const serializer = markdownSerializer != null ? markdownSerializer : defaultMarkdownSerializer;
-    return serializer.serialize(editorInstance.state.doc);
+    if (!markdownSerializer) {
+      return "";
+    }
+    return markdownSerializer.serialize(editorInstance.state.doc);
   };
   window.VersoNotesInsertQuote = (quote, annotationId) => {
     if (!editorInstance) {
       return;
     }
-    const prefix = annotationId.substring(0, 8).toLowerCase();
-    const prefixedQuote = `[${prefix}] ${quote}`;
     editorInstance.commands.focus("end");
     const { state } = editorInstance;
     if (state.doc.content.size > 2) {
@@ -24706,10 +24814,11 @@ img.ProseMirror-separator {
     }
     editorInstance.commands.insertContent({
       type: "blockquote",
+      attrs: { annotationId },
       content: [
         {
           type: "paragraph",
-          content: [{ type: "text", text: prefixedQuote }]
+          content: [{ type: "text", text: quote }]
         }
       ]
     });

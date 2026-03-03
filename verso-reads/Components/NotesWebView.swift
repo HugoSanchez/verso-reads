@@ -15,7 +15,7 @@ struct NotesWebView: NSViewRepresentable {
     let markdown: String
     let pendingQuoteInsertion: QuoteInsertion?
     let onMarkdownChange: (String) -> Void
-    let onQuoteClick: (String) -> Void  // Receives 8-char prefix
+    let onQuoteClick: (UUID) -> Void
     let onQuoteInserted: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -63,10 +63,10 @@ struct NotesWebView: NSViewRepresentable {
         private var lastInsertedQuoteId: UUID?
         private var pollTimer: Timer?
         private let onMarkdownChange: (String) -> Void
-        private let onQuoteClick: (String) -> Void
+        private let onQuoteClick: (UUID) -> Void
         private let onQuoteInserted: () -> Void
 
-        init(onMarkdownChange: @escaping (String) -> Void, onQuoteClick: @escaping (String) -> Void, onQuoteInserted: @escaping () -> Void) {
+        init(onMarkdownChange: @escaping (String) -> Void, onQuoteClick: @escaping (UUID) -> Void, onQuoteInserted: @escaping () -> Void) {
             self.onMarkdownChange = onMarkdownChange
             self.onQuoteClick = onQuoteClick
             self.onQuoteInserted = onQuoteInserted
@@ -144,9 +144,11 @@ struct NotesWebView: NSViewRepresentable {
                     }
                     return
                 }
-                if type == "quote-click", let annotationIdPrefix = payload["annotationId"] as? String {
+                if type == "quote-click",
+                   let annotationIdString = payload["annotationId"] as? String,
+                   let annotationId = UUID(uuidString: annotationIdString) {
                     DispatchQueue.main.async {
-                        self.onQuoteClick(annotationIdPrefix)
+                        self.onQuoteClick(annotationId)
                     }
                     return
                 }
