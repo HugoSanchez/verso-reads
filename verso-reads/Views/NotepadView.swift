@@ -13,21 +13,31 @@ struct NotepadView: View {
     @State private var markdown: String = ""
     @State private var note: DocumentNote?
     @State private var saveTask: Task<Void, Never>?
+    @State private var pendingQuoteInsertion: QuoteInsertion?
 
     var body: some View {
-        NotesWebView(markdown: markdown, onMarkdownChange: handleMarkdownChange)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onAppear {
+        NotesWebView(
+            markdown: markdown,
+            pendingQuoteInsertion: pendingQuoteInsertion,
+            onMarkdownChange: handleMarkdownChange,
+            onQuoteClick: handleQuoteClick,
+            onQuoteInserted: { pendingQuoteInsertion = nil }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear {
+            loadNote()
+        }
+        .task(id: readerSession.activeDocumentID) {
+            loadNote()
+        }
+        .onChange(of: readerSession.isRightPanelVisible) { _, isVisible in
+            if isVisible {
                 loadNote()
             }
-            .task(id: readerSession.activeDocumentID) {
-                loadNote()
-            }
-            .onChange(of: readerSession.isRightPanelVisible) { _, isVisible in
-                if isVisible {
-                    loadNote()
-                }
-            }
+        }
+        .onChange(of: readerSession.pendingNoteQuote) { _, newValue in
+            handlePendingNoteQuote(newValue)
+        }
     }
 
     private func loadNote() {
@@ -62,8 +72,36 @@ struct NotepadView: View {
 
     private func handleMarkdownChange(_ newMarkdown: String) {
         guard newMarkdown != markdown else { return }
+        // Safeguard: don't overwrite existing content with empty string
+        if newMarkdown.isEmpty && !markdown.isEmpty {
+            return
+        }
         markdown = newMarkdown
         scheduleSave()
+    }
+
+    private func handleQuoteClick(_ annotationId: UUID) {
+        readerSession.noteQuoteNavigation.send(annotationId)
+    }
+
+    private func handlePendingNoteQuote(_ insertion: NoteQuoteInsertion?) {
+        guard let insertion else { return }
+        guard readerSession.activeDocumentID == insertion.documentID else { return }
+
+        let trimmed = insertion.quote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        pendingQuoteInsertion = QuoteInsertion(
+            quote: trimmed,
+            annotationId: insertion.annotationID
+        )
+
+        // Clear the pending quote from session
+        DispatchQueue.main.async {
+            if readerSession.pendingNoteQuote?.annotationID == insertion.annotationID {
+                readerSession.pendingNoteQuote = nil
+            }
+        }
     }
 
     private func scheduleSave() {

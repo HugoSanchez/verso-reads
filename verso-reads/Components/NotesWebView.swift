@@ -6,12 +6,20 @@
 import SwiftUI
 import WebKit
 
+struct QuoteInsertion: Equatable {
+    let quote: String
+    let annotationId: UUID
+}
+
 struct NotesWebView: NSViewRepresentable {
     let markdown: String
+    let pendingQuoteInsertion: QuoteInsertion?
     let onMarkdownChange: (String) -> Void
+    let onQuoteClick: (UUID) -> Void
+    let onQuoteInserted: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onMarkdownChange: onMarkdownChange)
+        Coordinator(onMarkdownChange: onMarkdownChange, onQuoteClick: onQuoteClick, onQuoteInserted: onQuoteInserted)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -39,6 +47,10 @@ struct NotesWebView: NSViewRepresentable {
         }
 
         context.coordinator.queueMarkdown(markdown, for: webView)
+
+        if let insertion = pendingQuoteInsertion {
+            context.coordinator.insertQuote(insertion, into: webView)
+        }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -48,11 +60,31 @@ struct NotesWebView: NSViewRepresentable {
         private var lastEmittedMarkdown: String?
         private var lastObservedMarkdown: String?
         private var pendingMarkdown: String?
+        private var lastInsertedQuoteId: UUID?
         private var pollTimer: Timer?
         private let onMarkdownChange: (String) -> Void
+        private let onQuoteClick: (UUID) -> Void
+        private let onQuoteInserted: () -> Void
 
-        init(onMarkdownChange: @escaping (String) -> Void) {
+        init(onMarkdownChange: @escaping (String) -> Void, onQuoteClick: @escaping (UUID) -> Void, onQuoteInserted: @escaping () -> Void) {
             self.onMarkdownChange = onMarkdownChange
+            self.onQuoteClick = onQuoteClick
+            self.onQuoteInserted = onQuoteInserted
+        }
+
+        func insertQuote(_ insertion: QuoteInsertion, into webView: WKWebView) {
+            guard isReady else { return }
+            guard lastInsertedQuoteId != insertion.annotationId else { return }
+            lastInsertedQuoteId = insertion.annotationId
+
+            let escapedQuote = insertion.quote
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            let js = "window.VersoNotesInsertQuote && window.VersoNotesInsertQuote(\"\(escapedQuote)\", \"\(insertion.annotationId.uuidString)\");"
+            webView.evaluateJavaScript(js) { [weak self] _, _ in
+                self?.onQuoteInserted()
+            }
         }
 
         deinit {
@@ -110,6 +142,14 @@ struct NotesWebView: NSViewRepresentable {
                     DispatchQueue.main.async {
                         self.onMarkdownChange(markdown)
                     }
+                    return
+                }
+                if type == "quote-click", let annotationIdString = payload["annotationId"] as? String,
+                   let annotationId = UUID(uuidString: annotationIdString) {
+                    DispatchQueue.main.async {
+                        self.onQuoteClick(annotationId)
+                    }
+                    return
                 }
             }
         }
@@ -376,6 +416,12 @@ private final class NotesWKWebView: WKWebView {
 }
 
 #Preview {
-    NotesWebView(markdown: "", onMarkdownChange: { _ in })
-        .frame(width: 320, height: 320)
+    NotesWebView(
+        markdown: "",
+        pendingQuoteInsertion: nil,
+        onMarkdownChange: { _ in },
+        onQuoteClick: { _ in },
+        onQuoteInserted: {}
+    )
+    .frame(width: 320, height: 320)
 }
