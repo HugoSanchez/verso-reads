@@ -18323,7 +18323,7 @@ img.ProseMirror-separator {
       }
       const json = editorInstance.getJSON();
       postMessage({ type: "content", json });
-    }, 400);
+    }, 150);
   };
   var findBlockquoteAt = (doc3, pos) => {
     let result = null;

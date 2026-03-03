@@ -120,9 +120,12 @@ struct NotesWebView: NSViewRepresentable {
             guard let payload = message.body as? [String: Any],
                   let type = payload["type"] as? String else { return }
 
+            print("[NotesWebView] received message: \(type)")
+
             switch type {
             case "ready":
                 isReady = true
+                print("[NotesWebView] editor ready")
                 if let pending = pendingContent, let webView = message.webView {
                     applyContent(pending, to: webView)
                     pendingContent = nil
@@ -137,10 +140,13 @@ struct NotesWebView: NSViewRepresentable {
                     } else {
                         jsonString = ""
                     }
+                    print("[NotesWebView] content received, length=\(jsonString.count)")
                     lastEmittedContent = jsonString
                     DispatchQueue.main.async {
                         self.onContentChange(jsonString)
                     }
+                } else {
+                    print("[NotesWebView] content message but no json payload")
                 }
 
             case "quote-click":

@@ -45,6 +45,7 @@ struct NotepadView: View {
         saveTask?.cancel()
 
         guard let documentID = readerSession.activeDocumentID else {
+            print("[NotepadView] loadNote: no activeDocumentID")
             note = nil
             content = ""
             return
@@ -60,11 +61,14 @@ struct NotepadView: View {
             if let existing = results.first {
                 note = existing
                 content = existing.content
+                print("[NotepadView] loadNote: found, length=\(existing.content.count)")
             } else {
+                print("[NotepadView] loadNote: not found for \(documentID)")
                 note = nil
                 content = ""
             }
         } catch {
+            print("[NotepadView] loadNote error: \(error)")
             note = nil
             content = ""
         }
@@ -72,8 +76,10 @@ struct NotepadView: View {
 
     private func handleContentChange(_ newContent: String) {
         guard newContent != content else { return }
+        print("[NotepadView] contentChange: \(newContent.prefix(50))...")
         content = newContent
-        scheduleSave()
+        // Save immediately - the view can be destroyed when sidebar closes
+        saveContent(newContent)
     }
 
     private func handleQuoteClick(_ annotationId: UUID) {
@@ -115,15 +121,18 @@ struct NotepadView: View {
             let newNote = DocumentNote(documentID: documentID, content: text)
             modelContext.insert(newNote)
             note = newNote
+            print("[NotepadView] created new note")
         } else {
             note?.content = text
             note?.updatedAt = Date()
+            print("[NotepadView] updated existing note")
         }
 
         do {
             try modelContext.save()
+            print("[NotepadView] saved OK, length=\(text.count)")
         } catch {
-            print("Failed to save note: \(error)")
+            print("[NotepadView] save FAILED: \(error)")
         }
     }
 }

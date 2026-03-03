@@ -47,13 +47,14 @@ const scheduleContentPost = () => {
   if (updateTimer) {
     clearTimeout(updateTimer);
   }
+  // Short debounce to batch rapid keystrokes, but quick enough to save before sidebar closes
   updateTimer = setTimeout(() => {
     if (!editorInstance || isApplyingContent) {
       return;
     }
     const json = editorInstance.getJSON();
     postMessage({ type: "content", json });
-  }, 400);
+  }, 150);
 };
 
 // Find the blockquote node at a given position
