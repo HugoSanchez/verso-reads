@@ -36,13 +36,15 @@ struct ReaderCanvasView: View {
                 onTitleCommit: renameActiveDocument,
                 isSidebarVisible: $isSidebarVisible,
                 onSidebarToggle: { _ in
-                    pdfController.captureDesiredScaleFactorIfNeeded()
+                    // Don't capture scale - let PDF auto-scale to new width
+                    pdfController.resetDesiredScaleFactor()
                 },
                 isRightPanelVisible: $isRightPanelVisible,
                 highlightColor: $highlightColor,
                 onHighlight: { addHighlight(color: $0) },
                 onRightPanelToggle: { _ in
-                    pdfController.captureDesiredScaleFactorIfNeeded()
+                    // Don't capture scale - let PDF auto-scale to new width
+                    pdfController.resetDesiredScaleFactor()
                 },
                 isZoomEnabled: pdfDocument != nil,
                 currentZoomPercent: {

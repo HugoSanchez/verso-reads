@@ -37,6 +37,7 @@ final class PDFReaderController: NSObject, ObservableObject {
 
     func resetDesiredScaleFactor() {
         desiredScaleFactor = nil
+        pdfView?.autoScales = true
     }
 
     func applyDesiredScaleFactorIfNeeded(availableWidth: CGFloat) {
@@ -98,7 +99,13 @@ final class PDFReaderController: NSObject, ObservableObject {
             width: CGFloat(rect.w) * pageBounds.width,
             height: CGFloat(rect.h) * pageBounds.height
         )
-        let destinationPoint = CGPoint(x: targetRect.minX, y: targetRect.maxY)
+
+        // Calculate offset to place quote ~1/4 from top of view
+        let viewHeight = pdfView.bounds.height
+        let offsetInPoints = viewHeight * 0.25 / pdfView.scaleFactor
+
+        // Adjust destination point upward (in PDF coords) so quote appears lower in view
+        let destinationPoint = CGPoint(x: targetRect.minX, y: targetRect.maxY + offsetInPoints)
         let destination = PDFDestination(page: page, at: destinationPoint)
         pdfView.go(to: destination)
     }
