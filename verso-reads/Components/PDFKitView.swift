@@ -261,13 +261,13 @@ struct PDFKitView: NSViewRepresentable {
             let markerSize: CGFloat = 14
             let margin: CGFloat = 6
             let gap: CGFloat = 10
-            let verticalOffset: CGFloat = 18 // Offset below pins to avoid overlap
+            let horizontalOffset: CGFloat = 18 // Offset to the right of pins
 
-            var x = unionRect.maxX + gap
+            var x = unionRect.maxX + gap + horizontalOffset
             if x + markerSize > pageBounds.maxX - margin {
                 x = max(pageBounds.minX + margin, pageBounds.maxX - margin - markerSize)
             }
-            var y = unionRect.midY - markerSize / 2 - verticalOffset
+            var y = unionRect.midY - markerSize / 2
             y = min(max(y, pageBounds.minY + margin), pageBounds.maxY - margin - markerSize)
 
             let markerBounds = CGRect(x: x, y: y, width: markerSize, height: markerSize)
@@ -374,19 +374,19 @@ final class PinPDFAnnotation: PDFAnnotation {
 
         let rect = bounds.insetBy(dx: 1, dy: 1)
 
-        // Outer ring
-        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor)
+        // Outer ring - subtle
+        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.08).cgColor)
         context.fillEllipse(in: rect)
 
-        // Inner dot
-        let dotSize = rect.width * 0.45
+        // Inner dot - more subtle
+        let dotSize = rect.width * 0.4
         let dotRect = CGRect(
             x: rect.midX - dotSize / 2,
             y: rect.midY - dotSize / 2,
             width: dotSize,
             height: dotSize
         )
-        context.setFillColor(NSColor.controlAccentColor.cgColor)
+        context.setFillColor(NSColor.controlAccentColor.withAlphaComponent(0.5).cgColor)
         context.fillEllipse(in: dotRect)
 
         context.restoreGState()
