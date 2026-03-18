@@ -20,6 +20,7 @@ struct SidebarView: View {
     @State private var isReadingExpanded = true
     @State private var isCreatingCollection = false
     @State private var newCollectionName = ""
+    @State private var expandedCollectionIDs: Set<UUID> = []
     @FocusState private var isNewCollectionFocused: Bool
 
     var body: some View {
@@ -74,21 +75,37 @@ struct SidebarView: View {
                 .padding(.top, 8)
 
                 ForEach(collections) { collection in
-                    DocumentCollectionRow(
-                        collection: collection,
-                        onDelete: { deleteCollection(collection) },
-                        onDocumentDropped: { documentID in
-                            addDocumentToCollection(documentID: documentID, collection: collection)
+                    VStack(alignment: .leading, spacing: 0) {
+                        DocumentCollectionRow(
+                            collection: collection,
+                            onTap: { toggleCollection(collection.id) },
+                            onDelete: { deleteCollection(collection) },
+                            onDocumentDropped: { documentID in
+                                addDocumentToCollection(documentID: documentID, collection: collection)
+                            }
+                        )
+
+                        if expandedCollectionIDs.contains(collection.id) {
+                            ForEach(documentsInCollection(collection), id: \.id) { document in
+                                LibraryDocumentRow(
+                                    documentID: document.id,
+                                    title: document.title,
+                                    isActive: document.id == activeDocumentID,
+                                    onOpen: { onOpenDocument(document) },
+                                    onDelete: { onDeleteDocument(document) }
+                                )
+                                .padding(.leading, 16)
+                            }
                         }
-                    )
+                    }
                 }
 
                 if isCreatingCollection {
                     HStack(spacing: 10) {
                         Image(systemName: "folder")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.black.opacity(0.5))
-                            .frame(width: 20)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Color.black.opacity(0.3))
+                            .frame(width: 16)
 
                         TextField("Collection name", text: $newCollectionName)
                             .textFieldStyle(.plain)
@@ -166,6 +183,18 @@ struct SidebarView: View {
         } catch {
             print("Failed to add document to collection: \(error)")
         }
+    }
+
+    private func toggleCollection(_ collectionID: UUID) {
+        if expandedCollectionIDs.contains(collectionID) {
+            expandedCollectionIDs.remove(collectionID)
+        } else {
+            expandedCollectionIDs.insert(collectionID)
+        }
+    }
+
+    private func documentsInCollection(_ collection: DocumentCollection) -> [LibraryDocument] {
+        documents.filter { collection.documentIDs.contains($0.id) }
     }
 }
 

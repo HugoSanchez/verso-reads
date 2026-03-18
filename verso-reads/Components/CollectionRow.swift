@@ -7,6 +7,7 @@ import SwiftUI
 
 struct DocumentCollectionRow: View {
     let collection: DocumentCollection
+    let onTap: () -> Void
     let onDelete: () -> Void
     let onDocumentDropped: (UUID) -> Void
 
@@ -17,8 +18,9 @@ struct DocumentCollectionRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "folder")
-                .font(.system(size: 14))
-                .frame(width: 20)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.black.opacity(0.3))
+                .frame(width: 16)
 
             Text(collection.name)
                 .font(.system(size: 13, weight: .regular))
@@ -55,6 +57,9 @@ struct DocumentCollectionRow: View {
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
         .onHover { hovering in
             isHovering = hovering
             if hovering == false {
@@ -94,6 +99,7 @@ struct DocumentCollectionRow: View {
                 let c = DocumentCollection(name: "Work")
                 return c
             }(),
+            onTap: {},
             onDelete: {},
             onDocumentDropped: { _ in }
         )
@@ -102,6 +108,7 @@ struct DocumentCollectionRow: View {
                 let c = DocumentCollection(name: "Research Papers")
                 return c
             }(),
+            onTap: {},
             onDelete: {},
             onDocumentDropped: { _ in }
         )
