@@ -7,6 +7,7 @@ import SwiftUI
 import PDFKit
 import SwiftData
 import UniformTypeIdentifiers
+import Combine
 
 struct ReaderCanvasView: View {
     @Environment(\.modelContext) private var modelContext
@@ -64,10 +65,12 @@ struct ReaderCanvasView: View {
                                 document: pdfDocument,
                                 highlights: highlightAnnotations,
                                 chatPins: chatPinAnnotations,
+                                noteQuotes: noteQuoteAnnotations,
                                 activePinAnchor: activePinAnchor ?? readerSession.activeNoteQuoteAnchor,
                                 controller: pdfController,
                                 availableWidth: proxy.size.width,
-                                onPinTapped: handlePinTapped
+                                onPinTapped: handlePinTapped,
+                                onNoteQuoteTapped: handleNoteQuoteTapped
                             )
                             selectionOverlay(in: proxy.size)
                         }
@@ -326,7 +329,7 @@ struct ReaderCanvasView: View {
         guard let documentID = activeDocument?.id else { return [] }
         return annotations.filter { annotation in
             annotation.documentID == documentID &&
-            (annotation.kind == .highlight || annotation.kind == .chatPin)
+            (annotation.kind == .highlight || annotation.kind == .chatPin || annotation.kind == .noteQuote)
         }
     }
 
@@ -336,6 +339,21 @@ struct ReaderCanvasView: View {
 
     private var chatPinAnnotations: [Annotation] {
         filteredAnnotations.filter { $0.kind == .chatPin }
+    }
+
+    private var noteQuoteAnnotations: [Annotation] {
+        filteredAnnotations.filter { $0.kind == .noteQuote }
+    }
+
+    private func handleNoteQuoteTapped(_ quoteID: UUID) {
+        // Clear any active pin highlight
+        onClearPinHighlight()
+
+        // Open the right panel if not already visible
+        isRightPanelVisible = true
+
+        // Navigate to the quote in the PDF (show highlight)
+        readerSession.noteQuoteNavigation.send(quoteID)
     }
 }
 

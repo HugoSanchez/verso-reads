@@ -10,10 +10,12 @@ struct PDFKitView: NSViewRepresentable {
     let document: PDFDocument
     let highlights: [Annotation]
     let chatPins: [Annotation]
+    let noteQuotes: [Annotation]
     let activePinAnchor: Data?
     let controller: PDFReaderController
     let availableWidth: CGFloat
     let onPinTapped: (UUID) -> Void
+    let onNoteQuoteTapped: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -35,6 +37,7 @@ struct PDFKitView: NSViewRepresentable {
         controller.attach(pdfView: view)
         if let pinView = view as? PinPDFView {
             pinView.onPinTapped = onPinTapped
+            pinView.onNoteQuoteTapped = onNoteQuoteTapped
         }
         return view
     }
@@ -55,8 +58,9 @@ struct PDFKitView: NSViewRepresentable {
         controller.applyDesiredScaleFactorIfNeeded(availableWidth: availableWidth)
         if let pinView = nsView as? PinPDFView {
             pinView.onPinTapped = onPinTapped
+            pinView.onNoteQuoteTapped = onNoteQuoteTapped
         }
-        context.coordinator.sync(highlights: highlights, pins: chatPins, activePinAnchor: activePinAnchor, in: nsView)
+        context.coordinator.sync(highlights: highlights, pins: chatPins, noteQuotes: noteQuotes, activePinAnchor: activePinAnchor, in: nsView)
     }
 
     private func hideScrollbars(in view: PDFView) {
@@ -86,6 +90,8 @@ struct PDFKitView: NSViewRepresentable {
         private var pdfAnnotationsByHighlightID: [UUID: [PDFAnnotation]] = [:]
         private var appliedPinIDs: Set<UUID> = []
         private var pdfAnnotationsByPinID: [UUID: PDFAnnotation] = [:]
+        private var appliedNoteQuoteIDs: Set<UUID> = []
+        private var pdfAnnotationsByNoteQuoteID: [UUID: PDFAnnotation] = [:]
         private var activePinHighlightAnnotations: [PDFAnnotation] = []
         private var currentActivePinAnchor: Data?
 
@@ -94,11 +100,13 @@ struct PDFKitView: NSViewRepresentable {
             pdfAnnotationsByHighlightID.removeAll()
             appliedPinIDs.removeAll()
             pdfAnnotationsByPinID.removeAll()
+            appliedNoteQuoteIDs.removeAll()
+            pdfAnnotationsByNoteQuoteID.removeAll()
             activePinHighlightAnnotations.removeAll()
             currentActivePinAnchor = nil
         }
 
-        func sync(highlights: [Annotation], pins: [Annotation], activePinAnchor: Data?, in pdfView: PDFView) {
+        func sync(highlights: [Annotation], pins: [Annotation], noteQuotes: [Annotation], activePinAnchor: Data?, in pdfView: PDFView) {
             guard let document = pdfView.document else { return }
 
             let desiredIDs = Set(highlights.map(\.id))
@@ -123,6 +131,19 @@ struct PDFKitView: NSViewRepresentable {
                 guard appliedPinIDs.contains(pin.id) == false else { continue }
                 guard pin.kind == .chatPin else { continue }
                 applyPin(pin, to: document)
+            }
+
+            // Sync note quote markers
+            let desiredNoteQuoteIDs = Set(noteQuotes.map(\.id))
+            let removedNoteQuoteIDs = appliedNoteQuoteIDs.subtracting(desiredNoteQuoteIDs)
+            for removedID in removedNoteQuoteIDs {
+                removeNoteQuote(id: removedID, from: document)
+            }
+
+            for noteQuote in noteQuotes {
+                guard appliedNoteQuoteIDs.contains(noteQuote.id) == false else { continue }
+                guard noteQuote.kind == .noteQuote else { continue }
+                applyNoteQuote(noteQuote, to: document)
             }
 
             // Handle active pin temporary highlight
@@ -217,6 +238,55 @@ struct PDFKitView: NSViewRepresentable {
             appliedPinIDs.remove(id)
         }
 
+        private func applyNoteQuote(_ noteQuote: Annotation, to document: PDFDocument) {
+            guard let anchor = try? JSONDecoder().decode(PDFHighlightAnchor.self, from: noteQuote.anchorData) else { return }
+            guard let firstFragment = anchor.fragments.sorted(by: { $0.pageIndex < $1.pageIndex }).first,
+                  let page = document.page(at: firstFragment.pageIndex),
+                  firstFragment.rects.isEmpty == false
+            else { return }
+
+            let pageBounds = page.bounds(for: .mediaBox)
+            let unionRect = firstFragment.rects.reduce(into: CGRect.null) { rect, normalized in
+                let bounds = CGRect(
+                    x: pageBounds.minX + CGFloat(normalized.x) * pageBounds.width,
+                    y: pageBounds.minY + CGFloat(normalized.y) * pageBounds.height,
+                    width: CGFloat(normalized.w) * pageBounds.width,
+                    height: CGFloat(normalized.h) * pageBounds.height
+                )
+                rect = rect.union(bounds)
+            }
+
+            guard unionRect.isNull == false, unionRect.isEmpty == false else { return }
+
+            let markerSize: CGFloat = 14
+            let margin: CGFloat = 6
+            let gap: CGFloat = 10
+            let verticalOffset: CGFloat = 18 // Offset below pins to avoid overlap
+
+            var x = unionRect.maxX + gap
+            if x + markerSize > pageBounds.maxX - margin {
+                x = max(pageBounds.minX + margin, pageBounds.maxX - margin - markerSize)
+            }
+            var y = unionRect.midY - markerSize / 2 - verticalOffset
+            y = min(max(y, pageBounds.minY + margin), pageBounds.maxY - margin - markerSize)
+
+            let markerBounds = CGRect(x: x, y: y, width: markerSize, height: markerSize)
+            let annotation = NoteQuotePDFAnnotation(bounds: markerBounds, quoteID: noteQuote.id)
+            annotation.shouldPrint = false
+            annotation.userName = noteQuote.id.uuidString
+            page.addAnnotation(annotation)
+
+            appliedNoteQuoteIDs.insert(noteQuote.id)
+            pdfAnnotationsByNoteQuoteID[noteQuote.id] = annotation
+        }
+
+        private func removeNoteQuote(id: UUID, from document: PDFDocument) {
+            guard let annotation = pdfAnnotationsByNoteQuoteID[id] else { return }
+            annotation.page?.removeAnnotation(annotation)
+            pdfAnnotationsByNoteQuoteID[id] = nil
+            appliedNoteQuoteIDs.remove(id)
+        }
+
         private func applyActivePinHighlight(anchorData: Data, to document: PDFDocument) {
             guard let anchor = try? JSONDecoder().decode(PDFHighlightAnchor.self, from: anchorData) else { return }
 
@@ -254,23 +324,30 @@ struct PDFKitView: NSViewRepresentable {
         document: PDFDocument(),
         highlights: [],
         chatPins: [],
+        noteQuotes: [],
         activePinAnchor: nil,
         controller: PDFReaderController(),
         availableWidth: 800,
-        onPinTapped: { _ in }
+        onPinTapped: { _ in },
+        onNoteQuoteTapped: { _ in }
     )
         .frame(width: 600, height: 400)
 }
 
 final class PinPDFView: PDFView {
     var onPinTapped: ((UUID) -> Void)?
+    var onNoteQuoteTapped: ((UUID) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
         if let page = page(for: location, nearest: true) {
             let pagePoint = convert(location, to: page)
-            if let annotation = page.annotation(at: pagePoint) as? PinPDFAnnotation {
-                onPinTapped?(annotation.pinID)
+            if let pinAnnotation = page.annotation(at: pagePoint) as? PinPDFAnnotation {
+                onPinTapped?(pinAnnotation.pinID)
+                return
+            }
+            if let quoteAnnotation = page.annotation(at: pagePoint) as? NoteQuotePDFAnnotation {
+                onNoteQuoteTapped?(quoteAnnotation.quoteID)
                 return
             }
         }
@@ -311,6 +388,60 @@ final class PinPDFAnnotation: PDFAnnotation {
         )
         context.setFillColor(NSColor.controlAccentColor.cgColor)
         context.fillEllipse(in: dotRect)
+
+        context.restoreGState()
+    }
+}
+
+final class NoteQuotePDFAnnotation: PDFAnnotation {
+    let quoteID: UUID
+
+    init(bounds: CGRect, quoteID: UUID) {
+        self.quoteID = quoteID
+        super.init(bounds: bounds, forType: .stamp, withProperties: nil)
+        color = .clear
+        shouldDisplay = true
+    }
+
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(with box: PDFDisplayBox, in context: CGContext) {
+        context.saveGState()
+
+        let rect = bounds.insetBy(dx: 1, dy: 1)
+
+        // Outer rounded rect (document/note style) - amber/orange color
+        let noteColor = NSColor(red: 0.95, green: 0.6, blue: 0.1, alpha: 1.0)
+        context.setFillColor(noteColor.withAlphaComponent(0.15).cgColor)
+        let cornerRadius = rect.width * 0.2
+        let path = CGPath(roundedRect: rect, cornerWidth: cornerRadius, cornerHeight: cornerRadius, transform: nil)
+        context.addPath(path)
+        context.fillPath()
+
+        // Inner lines (document lines icon)
+        context.setStrokeColor(noteColor.cgColor)
+        context.setLineWidth(1.2)
+
+        let lineInset = rect.width * 0.25
+        let lineSpacing = rect.height * 0.22
+        let centerY = rect.midY
+
+        // Top line
+        context.move(to: CGPoint(x: rect.minX + lineInset, y: centerY + lineSpacing))
+        context.addLine(to: CGPoint(x: rect.maxX - lineInset, y: centerY + lineSpacing))
+        context.strokePath()
+
+        // Middle line
+        context.move(to: CGPoint(x: rect.minX + lineInset, y: centerY))
+        context.addLine(to: CGPoint(x: rect.maxX - lineInset, y: centerY))
+        context.strokePath()
+
+        // Bottom line (shorter)
+        context.move(to: CGPoint(x: rect.minX + lineInset, y: centerY - lineSpacing))
+        context.addLine(to: CGPoint(x: rect.maxX - lineInset * 1.5, y: centerY - lineSpacing))
+        context.strokePath()
 
         context.restoreGState()
     }
