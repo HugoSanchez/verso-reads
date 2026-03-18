@@ -346,14 +346,20 @@ struct ReaderCanvasView: View {
     }
 
     private func handleNoteQuoteTapped(_ quoteID: UUID) {
+        // Find the annotation to get its anchor data
+        guard let annotation = noteQuoteAnnotations.first(where: { $0.id == quoteID }) else { return }
+
         // Clear any active pin highlight
         onClearPinHighlight()
 
-        // Open the right panel if not already visible
-        isRightPanelVisible = true
-
-        // Navigate to the quote in the PDF (show highlight)
-        readerSession.noteQuoteNavigation.send(quoteID)
+        // Toggle highlight if clicking the same quote, otherwise show new highlight
+        if readerSession.activeNoteQuoteAnchor == annotation.anchorData {
+            readerSession.activeNoteQuoteAnchor = nil
+        } else {
+            readerSession.activeNoteQuoteAnchor = annotation.anchorData
+            // Open the right panel if not already visible
+            isRightPanelVisible = true
+        }
     }
 }
 
