@@ -6,7 +6,9 @@
 import SwiftUI
 
 struct LibraryDocumentRow: View {
+    let documentID: UUID
     let title: String
+    let isActive: Bool
     let onOpen: () -> Void
     let onDelete: () -> Void
 
@@ -22,7 +24,7 @@ struct LibraryDocumentRow: View {
                         .frame(width: 20)
 
                     Text(title)
-                        .font(.system(size: 13, weight: .regular))
+                        .font(.system(size: 13, weight: isActive ? .medium : .regular))
                         .lineLimit(1)
                         .truncationMode(.tail)
 
@@ -32,7 +34,7 @@ struct LibraryDocumentRow: View {
                         Color.clear.frame(width: trailingReservationWidth, height: 1)
                     }
                 }
-                .foregroundStyle(Color.black.opacity(0.75))
+                .foregroundStyle(Color.black.opacity(isActive ? 0.75 : 0.5))
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -62,6 +64,7 @@ struct LibraryDocumentRow: View {
         )
         .animation(.easeInOut(duration: 0.12), value: isHovering)
         .animation(.easeInOut(duration: 0.12), value: isConfirmingDelete)
+        .draggable(documentID.uuidString)
     }
 
     private var trailingReservationWidth: CGFloat {
@@ -106,8 +109,8 @@ struct LibraryDocumentRow: View {
 
 #Preview {
     VStack(alignment: .leading, spacing: 6) {
-        LibraryDocumentRow(title: "itsverso_ Inc. Certificate of Incorporation (1)", onOpen: {}, onDelete: {})
-        LibraryDocumentRow(title: "Short title", onOpen: {}, onDelete: {})
+        LibraryDocumentRow(documentID: UUID(), title: "Active Document", isActive: true, onOpen: {}, onDelete: {})
+        LibraryDocumentRow(documentID: UUID(), title: "Another Document", isActive: false, onOpen: {}, onDelete: {})
     }
     .padding()
     .frame(width: 220)

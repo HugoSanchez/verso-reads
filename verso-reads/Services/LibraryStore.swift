@@ -94,6 +94,13 @@ enum LibraryStore {
             modelContext.delete(message)
         }
 
+        // Remove document from all collections
+        let collectionDescriptor = FetchDescriptor<DocumentCollection>()
+        let collections = try modelContext.fetch(collectionDescriptor)
+        for collection in collections {
+            collection.removeDocument(docID)
+        }
+
         modelContext.delete(document)
         try modelContext.save()
 

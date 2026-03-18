@@ -43,7 +43,8 @@ struct ContentView: View {
                 onOpenDocument: { openDocument($0) },
                 onDeleteDocument: { deleteDocument($0) },
                 onSelectSettings: { showSettings() },
-                documents: documents
+                documents: documents,
+                activeDocumentID: activeDocument?.id
             )
             .frame(maxHeight: .infinity)
             .offset(x: isSidebarVisible ? 0 : -(sidebarWidth + 24))
