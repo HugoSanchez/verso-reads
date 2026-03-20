@@ -83,6 +83,7 @@ struct ReaderToolbar: View {
                         Image(systemName: "sidebar.right")
                             .foregroundStyle(isRightPanelVisible ? Color.accentColor : Color.black.opacity(0.4))
                     }
+                    .disabled(!isZoomEnabled)
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 14))
