@@ -163,6 +163,8 @@ struct ContentView: View {
         pdfDocument = nil
         chatContext = nil
         chatMessages = []
+        pinnedPreview = nil
+        isRightPanelVisible = false
         mainPanel = .reader
     }
 
