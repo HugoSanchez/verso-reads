@@ -143,11 +143,13 @@ struct ContentView: View {
             let url = try LibraryStore.fileURL(for: document)
             activeDocument = document
             readerSession.activeDocumentID = document.id
+            readerSession.activeNoteQuoteAnchor = nil
             pdfDocument = PDFDocument(url: url)
             document.lastOpenedAt = Date()
             try modelContext.save()
             chatContext = nil
             chatMessages = []
+            pinnedPreview = nil
             mainPanel = .reader
             Task {
                 await RAGIngestionManager.shared.ensureIndexed(document: document, fileURL: url)
