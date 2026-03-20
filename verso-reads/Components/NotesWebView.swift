@@ -13,6 +13,7 @@ struct QuoteInsertion: Equatable {
 
 struct NotesWebView: NSViewRepresentable {
     let content: String
+    let documentID: UUID?
     let pendingQuoteInsertion: QuoteInsertion?
     let onContentChange: (String) -> Void
     let onQuoteClick: (UUID) -> Void
@@ -44,6 +45,11 @@ struct NotesWebView: NSViewRepresentable {
             context.coordinator.didLoad = true
         }
 
+        // Reset caches when document changes to ensure fresh content is applied
+        if context.coordinator.currentDocumentID != documentID {
+            context.coordinator.resetForDocumentChange(documentID)
+        }
+
         context.coordinator.queueContent(content, for: webView)
 
         if let insertion = pendingQuoteInsertion {
@@ -54,6 +60,7 @@ struct NotesWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var didLoad = false
         var isReady = false
+        var currentDocumentID: UUID?
         private var lastAppliedContent: String?
         private var lastEmittedContent: String?
         private var pendingContent: String?
@@ -66,6 +73,15 @@ struct NotesWebView: NSViewRepresentable {
             self.onContentChange = onContentChange
             self.onQuoteClick = onQuoteClick
             self.onQuoteInserted = onQuoteInserted
+        }
+
+        func resetForDocumentChange(_ newDocumentID: UUID?) {
+            currentDocumentID = newDocumentID
+            lastAppliedContent = nil
+            lastEmittedContent = nil
+            pendingContent = nil
+            lastInsertedQuoteId = nil
+            print("[NotesWebView] reset for document change: \(newDocumentID?.uuidString ?? "nil")")
         }
 
         func insertQuote(_ insertion: QuoteInsertion, into webView: WKWebView) {
@@ -218,6 +234,7 @@ private final class NotesWKWebView: WKWebView {
 #Preview {
     NotesWebView(
         content: "",
+        documentID: nil,
         pendingQuoteInsertion: nil,
         onContentChange: { _ in },
         onQuoteClick: { _ in },

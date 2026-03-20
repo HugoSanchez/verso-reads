@@ -19,6 +19,7 @@ struct NotepadView: View {
     var body: some View {
         NotesWebView(
             content: content,
+            documentID: readerSession.activeDocumentID,
             pendingQuoteInsertion: pendingQuoteInsertion,
             onContentChange: handleContentChange,
             onQuoteClick: handleQuoteClick,
