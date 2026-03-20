@@ -9,6 +9,7 @@ struct LibraryDocumentRow: View {
     let documentID: UUID
     let title: String
     let isActive: Bool
+    let showIcon: Bool
     let onOpen: () -> Void
     let onDelete: () -> Void
 
@@ -19,12 +20,20 @@ struct LibraryDocumentRow: View {
         ZStack(alignment: .trailing) {
             Button(action: openTapped) {
                 HStack(spacing: 10) {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 14))
-                        .frame(width: 20)
+                    // Active indicator dot
+                    Circle()
+                        .fill(Color.accentColor)
+                        .frame(width: 5, height: 5)
+                        .opacity(isActive ? 1 : 0)
+
+                    if showIcon {
+                        Image(systemName: "doc.text")
+                            .font(.system(size: 14))
+                            .frame(width: 20)
+                    }
 
                     Text(title)
-                        .font(.system(size: 13, weight: isActive ? .medium : .regular))
+                        .font(.system(size: 13))
                         .lineLimit(1)
                         .truncationMode(.tail)
 
@@ -34,9 +43,10 @@ struct LibraryDocumentRow: View {
                         Color.clear.frame(width: trailingReservationWidth, height: 1)
                     }
                 }
-                .foregroundStyle(Color.black.opacity(isActive ? 0.75 : 0.5))
+                .foregroundStyle(Color.black.opacity(0.5))
                 .padding(.vertical, 6)
-                .padding(.horizontal, 8)
+                .padding(.leading, 4)
+                .padding(.trailing, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
@@ -109,8 +119,9 @@ struct LibraryDocumentRow: View {
 
 #Preview {
     VStack(alignment: .leading, spacing: 6) {
-        LibraryDocumentRow(documentID: UUID(), title: "Active Document", isActive: true, onOpen: {}, onDelete: {})
-        LibraryDocumentRow(documentID: UUID(), title: "Another Document", isActive: false, onOpen: {}, onDelete: {})
+        LibraryDocumentRow(documentID: UUID(), title: "Active Document", isActive: true, showIcon: true, onOpen: {}, onDelete: {})
+        LibraryDocumentRow(documentID: UUID(), title: "Another Document", isActive: false, showIcon: true, onOpen: {}, onDelete: {})
+        LibraryDocumentRow(documentID: UUID(), title: "In Collection (no icon)", isActive: false, showIcon: false, onOpen: {}, onDelete: {})
     }
     .padding()
     .frame(width: 220)

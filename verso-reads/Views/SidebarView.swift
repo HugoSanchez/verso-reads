@@ -37,15 +37,18 @@ struct SidebarView: View {
                             .padding(.vertical, 6)
                             .padding(.leading, 28)
                     } else {
-                        ForEach(documents.prefix(8), id: \.id) { document in
-                            LibraryDocumentRow(
-                                documentID: document.id,
-                                title: document.title,
-                                isActive: document.id == activeDocumentID,
-                                onOpen: { onOpenDocument(document) },
-                                onDelete: { onDeleteDocument(document) }
-                            )
-                            .padding(.leading, 8)
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(documents.prefix(8), id: \.id) { document in
+                                LibraryDocumentRow(
+                                    documentID: document.id,
+                                    title: document.title,
+                                    isActive: document.id == activeDocumentID,
+                                    showIcon: false,
+                                    onOpen: { onOpenDocument(document) },
+                                    onDelete: { onDeleteDocument(document) }
+                                )
+                                .padding(.leading, 8)
+                            }
                         }
                     }
                 }
@@ -90,11 +93,16 @@ struct SidebarView: View {
                                 LibraryDocumentRow(
                                     documentID: document.id,
                                     title: document.title,
-                                    isActive: document.id == activeDocumentID,
+                                    isActive: false,
+                                    showIcon: false,
                                     onOpen: { onOpenDocument(document) },
                                     onDelete: { onDeleteDocument(document) }
                                 )
-                                .padding(.leading, 16)
+                                .contextMenu {
+                                    Button("Remove from Collection") {
+                                        removeDocumentFromCollection(documentID: document.id, collection: collection)
+                                    }
+                                }
                             }
                         }
                     }
@@ -182,6 +190,16 @@ struct SidebarView: View {
             try modelContext.save()
         } catch {
             print("Failed to add document to collection: \(error)")
+        }
+    }
+
+    private func removeDocumentFromCollection(documentID: UUID, collection: DocumentCollection) {
+        collection.removeDocument(documentID)
+
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to remove document from collection: \(error)")
         }
     }
 
