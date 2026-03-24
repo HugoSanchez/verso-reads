@@ -28,6 +28,13 @@ struct NotepadView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             loadNote()
+            // Check for pending note quote that was set before view mounted
+            if let pending = readerSession.pendingNoteQuote {
+                // Delay slightly to ensure WebView is ready
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    handlePendingNoteQuote(pending)
+                }
+            }
         }
         .task(id: readerSession.activeDocumentID) {
             loadNote()
@@ -35,6 +42,12 @@ struct NotepadView: View {
         .onChange(of: readerSession.isRightPanelVisible) { _, isVisible in
             if isVisible {
                 loadNote()
+                // Check for pending note quote when panel opens
+                if let pending = readerSession.pendingNoteQuote {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        handlePendingNoteQuote(pending)
+                    }
+                }
             }
         }
         .onChange(of: readerSession.pendingNoteQuote) { _, newValue in

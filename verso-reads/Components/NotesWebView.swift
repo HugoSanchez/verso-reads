@@ -65,6 +65,7 @@ struct NotesWebView: NSViewRepresentable {
         private var lastEmittedContent: String?
         private var pendingContent: String?
         private var lastInsertedQuoteId: UUID?
+        private var pendingQuoteInsertion: QuoteInsertion?
         private let onContentChange: (String) -> Void
         private let onQuoteClick: (UUID) -> Void
         private let onQuoteInserted: () -> Void
@@ -81,12 +82,24 @@ struct NotesWebView: NSViewRepresentable {
             lastEmittedContent = nil
             pendingContent = nil
             lastInsertedQuoteId = nil
+            pendingQuoteInsertion = nil
             print("[NotesWebView] reset for document change: \(newDocumentID?.uuidString ?? "nil")")
         }
 
         func insertQuote(_ insertion: QuoteInsertion, into webView: WKWebView) {
-            guard isReady else { return }
             guard lastInsertedQuoteId != insertion.annotationId else { return }
+
+            if isReady == false {
+                // Queue the insertion for when editor is ready
+                pendingQuoteInsertion = insertion
+                print("[NotesWebView] queued quote insertion for when ready")
+                return
+            }
+
+            executeQuoteInsertion(insertion, into: webView)
+        }
+
+        private func executeQuoteInsertion(_ insertion: QuoteInsertion, into webView: WKWebView) {
             lastInsertedQuoteId = insertion.annotationId
 
             let escapedQuote = insertion.quote
@@ -94,6 +107,7 @@ struct NotesWebView: NSViewRepresentable {
                 .replacingOccurrences(of: "\"", with: "\\\"")
                 .replacingOccurrences(of: "\n", with: "\\n")
             let js = "window.VersoNotesInsertQuote && window.VersoNotesInsertQuote(\"\(escapedQuote)\", \"\(insertion.annotationId.uuidString)\");"
+            print("[NotesWebView] executing quote insertion: \(insertion.annotationId)")
             webView.evaluateJavaScript(js) { [weak self] _, _ in
                 self?.onQuoteInserted()
             }
@@ -145,6 +159,11 @@ struct NotesWebView: NSViewRepresentable {
                 if let pending = pendingContent, let webView = message.webView {
                     applyContent(pending, to: webView)
                     pendingContent = nil
+                }
+                // Process any queued quote insertion
+                if let pendingQuote = pendingQuoteInsertion, let webView = message.webView {
+                    pendingQuoteInsertion = nil
+                    executeQuoteInsertion(pendingQuote, into: webView)
                 }
 
             case "content":

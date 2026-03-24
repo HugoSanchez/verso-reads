@@ -28,6 +28,9 @@ struct ReaderCanvasView: View {
     @StateObject private var pdfController = PDFReaderController()
     @State private var highlightColor: HighlightColor = .yellow
     @State private var lastSelectionInfo: PDFReaderController.SelectionInfo?
+    @State private var showSelectionOverlay = false
+    @State private var selectedHighlightInfo: HighlightTapInfo?
+    @State private var selectedNoteQuoteInfo: NoteQuoteTapInfo?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,9 +73,16 @@ struct ReaderCanvasView: View {
                                 controller: pdfController,
                                 availableWidth: proxy.size.width,
                                 onPinTapped: handlePinTapped,
-                                onNoteQuoteTapped: handleNoteQuoteTapped
+                                onNoteQuoteTapped: handleNoteQuoteTapped,
+                                onHighlightTapped: handleHighlightTapped,
+                                onBackgroundTapped: {
+                                    selectedHighlightInfo = nil
+                                    selectedNoteQuoteInfo = nil
+                                }
                             )
                             selectionOverlay(in: proxy.size)
+                            highlightPopover(in: proxy.size)
+                            noteQuoteDeleteButton(in: proxy.size)
                         }
                     }
                     .background(Color.white)
@@ -88,6 +98,15 @@ struct ReaderCanvasView: View {
             selectionDismiss.isActive = selection != nil
             if let selection {
                 lastSelectionInfo = selection
+                showSelectionOverlay = true
+            } else {
+                // Selection was cleared externally (e.g., clicked elsewhere)
+                // Don't hide overlay immediately - let button actions complete first
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    if pdfController.selectionInfo == nil {
+                        showSelectionOverlay = false
+                    }
+                }
             }
         }
         .onReceive(readerSession.noteQuoteNavigation) { annotationID in
@@ -95,6 +114,9 @@ struct ReaderCanvasView: View {
         }
         .onChange(of: activeDocument?.id) { _, _ in
             lastSelectionInfo = nil
+            showSelectionOverlay = false
+            selectedHighlightInfo = nil
+            selectedNoteQuoteInfo = nil
         }
     }
 
@@ -173,9 +195,41 @@ struct ReaderCanvasView: View {
 
     @ViewBuilder
     private func selectionOverlay(in size: CGSize) -> some View {
-        if let selection = pdfController.selectionInfo {
+        if showSelectionOverlay, let selection = lastSelectionInfo {
             let position = selectionOverlayPosition(for: selection.rect, in: size)
             HStack(spacing: 8) {
+                // Color swatches for quick highlighting
+                HStack(spacing: 5) {
+                    ForEach(HighlightColor.allCases) { color in
+                        Button {
+                            print("[Highlight] Color swatch tapped: \(color.rawValue)")
+                            addHighlightFromSelectionInfo(selection, color: color)
+                            showSelectionOverlay = false
+                        } label: {
+                            Circle()
+                                .fill(color.swatch)
+                                .frame(width: 14, height: 14)
+                                .overlay(
+                                    Circle()
+                                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering {
+                                NSCursor.pointingHand.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                    }
+                }
+
+                // Separator
+                Rectangle()
+                    .fill(Color.black.opacity(0.15))
+                    .frame(width: 1, height: 14)
+
                 selectionActionButton(
                     title: "Add to chat",
                     systemImage: "plus",
@@ -194,9 +248,15 @@ struct ReaderCanvasView: View {
 #endif
                             onAddSelectionToChat(ChatContext(text: selection.text))
                         }
+                        showSelectionOverlay = false
                         pdfController.clearSelection()
                     }
                 )
+
+                // Separator
+                Rectangle()
+                    .fill(Color.black.opacity(0.15))
+                    .frame(width: 1, height: 14)
 
                 selectionActionButton(
                     title: "Add to notes",
@@ -204,7 +264,44 @@ struct ReaderCanvasView: View {
                     action: addSelectionToNotes
                 )
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.black.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.18), radius: 12, x: 0, y: 4)
             .position(position)
+        }
+    }
+
+    private func addHighlightFromSelectionInfo(_ selection: PDFReaderController.SelectionInfo, color: HighlightColor) {
+        print("[Highlight] addHighlightFromSelectionInfo called, color=\(color.rawValue), quote=\(selection.quote.prefix(50))")
+        guard let documentID = activeDocument?.id else {
+            print("[Highlight] No active document, aborting")
+            return
+        }
+
+        do {
+            let data = try JSONEncoder().encode(selection.anchor)
+            print("[Highlight] Anchor encoded, fragments=\(selection.anchor.fragments.count)")
+            let annotation = Annotation(
+                documentID: documentID,
+                kind: .highlight,
+                anchorData: data,
+                quote: selection.quote,
+                colorRawValue: color.rawValue
+            )
+            modelContext.insert(annotation)
+            try modelContext.save()
+            print("[Highlight] Saved highlight id=\(annotation.id)")
+            pdfController.clearSelection()
+        } catch {
+            print("[Highlight] Failed to save highlight: \(error)")
         }
     }
 
@@ -226,25 +323,22 @@ struct ReaderCanvasView: View {
 
     private func selectionActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 10, weight: .medium))
                 Text(title)
                     .font(.system(size: 11, weight: .semibold))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.95))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 4)
+            .foregroundStyle(Color.black.opacity(0.5))
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
     }
 
     private func selectionOverlayPosition(for rect: CGRect, in size: CGSize) -> CGPoint {
@@ -293,6 +387,7 @@ struct ReaderCanvasView: View {
             )
             print("[NoteQuote] Saved annotation=\(annotation.id) doc=\(documentID)")
             isRightPanelVisible = true
+            showSelectionOverlay = false
             pdfController.clearSelection()
         } catch {
             print("Failed to save note quote: \(error)")
@@ -345,12 +440,19 @@ struct ReaderCanvasView: View {
         filteredAnnotations.filter { $0.kind == .noteQuote }
     }
 
-    private func handleNoteQuoteTapped(_ quoteID: UUID) {
+    private func handleNoteQuoteTapped(_ info: NoteQuoteTapInfo) {
         // Find the annotation to get its anchor data
-        guard let annotation = noteQuoteAnnotations.first(where: { $0.id == quoteID }) else { return }
+        guard let annotation = noteQuoteAnnotations.first(where: { $0.id == info.quoteID }) else { return }
 
         // Clear any active pin highlight
         onClearPinHighlight()
+
+        // Toggle delete button if clicking the same quote, otherwise show for new quote
+        if selectedNoteQuoteInfo?.quoteID == info.quoteID {
+            selectedNoteQuoteInfo = nil
+        } else {
+            selectedNoteQuoteInfo = info
+        }
 
         // Toggle highlight if clicking the same quote, otherwise show new highlight
         if readerSession.activeNoteQuoteAnchor == annotation.anchorData {
@@ -360,6 +462,139 @@ struct ReaderCanvasView: View {
             // Open the right panel if not already visible
             isRightPanelVisible = true
         }
+    }
+
+    private func handleHighlightTapped(_ info: HighlightTapInfo) {
+        // Toggle popover if tapping the same highlight, otherwise show for new highlight
+        if selectedHighlightInfo?.highlightID == info.highlightID {
+            selectedHighlightInfo = nil
+        } else {
+            selectedHighlightInfo = info
+        }
+    }
+
+    @ViewBuilder
+    private func highlightPopover(in size: CGSize) -> some View {
+        if let info = selectedHighlightInfo,
+           let highlight = highlightAnnotations.first(where: { $0.id == info.highlightID }) {
+            let position = highlightPopoverPosition(for: info.screenRect, in: size)
+
+            HighlightEditPopover(
+                currentColor: highlight.colorRawValue,
+                onColorChange: { color in
+                    changeHighlightColor(highlight, to: color)
+                },
+                onRemove: {
+                    removeHighlight(highlight)
+                }
+            )
+            .position(position)
+        }
+    }
+
+    private func highlightPopoverPosition(for rect: CGRect, in size: CGSize) -> CGPoint {
+        let popoverWidth: CGFloat = 200
+        let popoverHeight: CGFloat = 36
+        let padding: CGFloat = 10
+
+        var x = rect.midX
+        // Position above the highlight (rect.minY is the top in view coordinates)
+        var y = rect.minY - 12
+
+        // Keep within horizontal bounds
+        if x + popoverWidth / 2 > size.width - padding {
+            x = size.width - padding - popoverWidth / 2
+        }
+        if x - popoverWidth / 2 < padding {
+            x = padding + popoverWidth / 2
+        }
+
+        // If too close to top, show below the highlight
+        if y - popoverHeight / 2 < padding {
+            y = rect.maxY + popoverHeight / 2 + 8
+        }
+        // If too close to bottom, adjust
+        if y + popoverHeight / 2 > size.height - padding {
+            y = size.height - padding - popoverHeight / 2
+        }
+
+        return CGPoint(x: x, y: y)
+    }
+
+    private func changeHighlightColor(_ highlight: Annotation, to color: HighlightColor) {
+        highlight.colorRawValue = color.rawValue
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to change highlight color: \(error)")
+        }
+        selectedHighlightInfo = nil
+    }
+
+    private func removeHighlight(_ highlight: Annotation) {
+        modelContext.delete(highlight)
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to remove highlight: \(error)")
+        }
+        selectedHighlightInfo = nil
+    }
+
+    @ViewBuilder
+    private func noteQuoteDeleteButton(in size: CGSize) -> some View {
+        if let info = selectedNoteQuoteInfo {
+            // Position the X button at top-right corner of the marker
+            let buttonSize: CGFloat = 14
+            let x = info.screenRect.maxX + buttonSize / 2 - 2
+            let y = info.screenRect.minY - buttonSize / 2 + 2
+
+            Button {
+                removeNoteQuote(info.quoteID)
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.red.opacity(0.9))
+                        .frame(width: buttonSize, height: buttonSize)
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Color.white)
+                }
+            }
+            .buttonStyle(.plain)
+            .position(x: x, y: y)
+            .onHover { hovering in
+                if hovering {
+                    NSCursor.pointingHand.push()
+                } else {
+                    NSCursor.pop()
+                }
+            }
+        }
+    }
+
+    private func removeNoteQuote(_ quoteID: UUID) {
+        print("[NoteQuote] removeNoteQuote called for: \(quoteID)")
+        guard let annotation = noteQuoteAnnotations.first(where: { $0.id == quoteID }) else {
+            print("[NoteQuote] annotation not found!")
+            return
+        }
+
+        print("[NoteQuote] found annotation, deleting...")
+
+        // Clear the highlight if this quote was active
+        if readerSession.activeNoteQuoteAnchor == annotation.anchorData {
+            readerSession.activeNoteQuoteAnchor = nil
+        }
+
+        modelContext.delete(annotation)
+        do {
+            try modelContext.save()
+            print("[NoteQuote] deleted successfully, remaining noteQuotes: \(noteQuoteAnnotations.count)")
+        } catch {
+            print("[NoteQuote] Failed to remove note quote: \(error)")
+        }
+        selectedNoteQuoteInfo = nil
     }
 }
 

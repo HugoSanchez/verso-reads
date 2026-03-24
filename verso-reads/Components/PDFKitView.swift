@@ -6,6 +6,16 @@
 import SwiftUI
 import PDFKit
 
+struct HighlightTapInfo {
+    let highlightID: UUID
+    let screenRect: CGRect
+}
+
+struct NoteQuoteTapInfo {
+    let quoteID: UUID
+    let screenRect: CGRect
+}
+
 struct PDFKitView: NSViewRepresentable {
     let document: PDFDocument
     let highlights: [Annotation]
@@ -15,7 +25,9 @@ struct PDFKitView: NSViewRepresentable {
     let controller: PDFReaderController
     let availableWidth: CGFloat
     let onPinTapped: (UUID) -> Void
-    let onNoteQuoteTapped: (UUID) -> Void
+    let onNoteQuoteTapped: (NoteQuoteTapInfo) -> Void
+    let onHighlightTapped: (HighlightTapInfo) -> Void
+    let onBackgroundTapped: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -38,6 +50,8 @@ struct PDFKitView: NSViewRepresentable {
         if let pinView = view as? PinPDFView {
             pinView.onPinTapped = onPinTapped
             pinView.onNoteQuoteTapped = onNoteQuoteTapped
+            pinView.onHighlightTapped = onHighlightTapped
+            pinView.onBackgroundTapped = onBackgroundTapped
         }
         return view
     }
@@ -59,6 +73,8 @@ struct PDFKitView: NSViewRepresentable {
         if let pinView = nsView as? PinPDFView {
             pinView.onPinTapped = onPinTapped
             pinView.onNoteQuoteTapped = onNoteQuoteTapped
+            pinView.onHighlightTapped = onHighlightTapped
+            pinView.onBackgroundTapped = onBackgroundTapped
         }
         context.coordinator.sync(highlights: highlights, pins: chatPins, noteQuotes: noteQuotes, activePinAnchor: activePinAnchor, in: nsView)
     }
@@ -87,6 +103,7 @@ struct PDFKitView: NSViewRepresentable {
 
     final class Coordinator: NSObject {
         private var appliedHighlightIDs: Set<UUID> = []
+        private var appliedHighlightColors: [UUID: String] = [:]
         private var pdfAnnotationsByHighlightID: [UUID: [PDFAnnotation]] = [:]
         private var appliedPinIDs: Set<UUID> = []
         private var pdfAnnotationsByPinID: [UUID: PDFAnnotation] = [:]
@@ -97,6 +114,7 @@ struct PDFKitView: NSViewRepresentable {
 
         func reset() {
             appliedHighlightIDs.removeAll()
+            appliedHighlightColors.removeAll()
             pdfAnnotationsByHighlightID.removeAll()
             appliedPinIDs.removeAll()
             pdfAnnotationsByPinID.removeAll()
@@ -116,9 +134,20 @@ struct PDFKitView: NSViewRepresentable {
             }
 
             for highlight in highlights {
-                guard appliedHighlightIDs.contains(highlight.id) == false else { continue }
                 guard highlight.kind == .highlight else { continue }
+
+                // Check if color changed - if so, remove and re-apply
+                let currentColor = highlight.colorRawValue ?? ""
+                if appliedHighlightIDs.contains(highlight.id) {
+                    if appliedHighlightColors[highlight.id] != currentColor {
+                        removeHighlight(id: highlight.id, from: document)
+                    } else {
+                        continue
+                    }
+                }
+
                 applyHighlight(highlight, to: document)
+                appliedHighlightColors[highlight.id] = currentColor
             }
 
             let desiredPinIDs = Set(pins.map(\.id))
@@ -136,8 +165,11 @@ struct PDFKitView: NSViewRepresentable {
             // Sync note quote markers
             let desiredNoteQuoteIDs = Set(noteQuotes.map(\.id))
             let removedNoteQuoteIDs = appliedNoteQuoteIDs.subtracting(desiredNoteQuoteIDs)
+            if !removedNoteQuoteIDs.isEmpty {
+                print("[PDFKitView] removing note quote markers: \(removedNoteQuoteIDs)")
+            }
             for removedID in removedNoteQuoteIDs {
-                removeNoteQuote(id: removedID, from: document)
+                removeNoteQuote(id: removedID, from: document, pdfView: pdfView)
             }
 
             for noteQuote in noteQuotes {
@@ -173,6 +205,7 @@ struct PDFKitView: NSViewRepresentable {
                     )
                     let annotation = PDFAnnotation(bounds: bounds, forType: .highlight, withProperties: nil)
                     annotation.color = color
+                    annotation.userName = highlight.id.uuidString
                     page.addAnnotation(annotation)
                     created.append(annotation)
                 }
@@ -280,11 +313,38 @@ struct PDFKitView: NSViewRepresentable {
             pdfAnnotationsByNoteQuoteID[noteQuote.id] = annotation
         }
 
-        private func removeNoteQuote(id: UUID, from document: PDFDocument) {
-            guard let annotation = pdfAnnotationsByNoteQuoteID[id] else { return }
-            annotation.page?.removeAnnotation(annotation)
+        private func removeNoteQuote(id: UUID, from document: PDFDocument, pdfView: PDFView? = nil) {
+            print("[PDFKitView] removeNoteQuote called for: \(id)")
+            guard let annotation = pdfAnnotationsByNoteQuoteID[id] else {
+                print("[PDFKitView] annotation not found in cache!")
+                return
+            }
+
+            // Clear from our tracking first
             pdfAnnotationsByNoteQuoteID[id] = nil
             appliedNoteQuoteIDs.remove(id)
+
+            guard let page = annotation.page else {
+                print("[PDFKitView] annotation has no page!")
+                return
+            }
+
+            print("[PDFKitView] removing annotation from page, page has \(page.annotations.count) annotations")
+
+            // Hide annotation first, then remove
+            annotation.shouldDisplay = false
+            page.removeAnnotation(annotation)
+
+            print("[PDFKitView] after removal, page has \(page.annotations.count) annotations")
+
+            // Force complete redraw
+            DispatchQueue.main.async {
+                pdfView?.layoutDocumentView()
+                pdfView?.needsDisplay = true
+                pdfView?.documentView?.needsDisplay = true
+                pdfView?.setNeedsDisplay(pdfView?.bounds ?? .zero)
+            }
+            print("[PDFKitView] removal complete")
         }
 
         private func applyActivePinHighlight(anchorData: Data, to document: PDFDocument) {
@@ -329,14 +389,68 @@ struct PDFKitView: NSViewRepresentable {
         controller: PDFReaderController(),
         availableWidth: 800,
         onPinTapped: { _ in },
-        onNoteQuoteTapped: { _ in }
+        onNoteQuoteTapped: { (_: NoteQuoteTapInfo) in },
+        onHighlightTapped: { (_: HighlightTapInfo) in },
+        onBackgroundTapped: {}
     )
         .frame(width: 600, height: 400)
 }
 
 final class PinPDFView: PDFView {
     var onPinTapped: ((UUID) -> Void)?
-    var onNoteQuoteTapped: ((UUID) -> Void)?
+    var onNoteQuoteTapped: ((NoteQuoteTapInfo) -> Void)?
+    var onHighlightTapped: ((HighlightTapInfo) -> Void)?
+    var onBackgroundTapped: (() -> Void)?
+    private var isShowingPointingHand = false
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        // Remove existing tracking areas
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        // Add tracking area for mouse movement
+        let options: NSTrackingArea.Options = [.mouseMoved, .activeInKeyWindow, .inVisibleRect]
+        let trackingArea = NSTrackingArea(rect: bounds, options: options, owner: self, userInfo: nil)
+        addTrackingArea(trackingArea)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let location = convert(event.locationInWindow, from: nil)
+        var shouldShowPointer = false
+
+        if let page = page(for: location, nearest: true) {
+            let pagePoint = convert(location, to: page)
+            // Check for any clickable annotation
+            if page.annotation(at: pagePoint) is PinPDFAnnotation {
+                shouldShowPointer = true
+            } else if page.annotation(at: pagePoint) is NoteQuotePDFAnnotation {
+                shouldShowPointer = true
+            } else if let annotation = page.annotation(at: pagePoint),
+                      annotation.type == "Highlight",
+                      annotation.userName != nil {
+                shouldShowPointer = true
+            }
+        }
+
+        if shouldShowPointer && !isShowingPointingHand {
+            NSCursor.pointingHand.push()
+            isShowingPointingHand = true
+        } else if !shouldShowPointer && isShowingPointingHand {
+            NSCursor.pop()
+            isShowingPointingHand = false
+        }
+
+        super.mouseMoved(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if isShowingPointingHand {
+            NSCursor.pop()
+            isShowingPointingHand = false
+        }
+        super.mouseExited(with: event)
+    }
 
     override func mouseDown(with event: NSEvent) {
         let location = convert(event.locationInWindow, from: nil)
@@ -347,10 +461,50 @@ final class PinPDFView: PDFView {
                 return
             }
             if let quoteAnnotation = page.annotation(at: pagePoint) as? NoteQuotePDFAnnotation {
-                onNoteQuoteTapped?(quoteAnnotation.quoteID)
+                // Convert annotation bounds to view coordinates for delete button positioning
+                let pageBounds = quoteAnnotation.bounds
+                let viewRect = convert(pageBounds, from: page)
+                // Flip Y coordinate if view is not flipped
+                let adjustedRect: CGRect
+                if isFlipped {
+                    adjustedRect = viewRect
+                } else {
+                    adjustedRect = CGRect(
+                        x: viewRect.minX,
+                        y: bounds.height - viewRect.maxY,
+                        width: viewRect.width,
+                        height: viewRect.height
+                    )
+                }
+                onNoteQuoteTapped?(NoteQuoteTapInfo(quoteID: quoteAnnotation.quoteID, screenRect: adjustedRect))
+                return
+            }
+            // Check for highlight annotation
+            if let annotation = page.annotation(at: pagePoint),
+               annotation.type == "Highlight",
+               let userName = annotation.userName,
+               let highlightID = UUID(uuidString: userName) {
+                // Convert annotation bounds to view coordinates for popover positioning
+                let pageBounds = annotation.bounds
+                let viewRect = convert(pageBounds, from: page)
+                // Flip Y coordinate if view is not flipped (same as PDFReaderController does)
+                let adjustedRect: CGRect
+                if isFlipped {
+                    adjustedRect = viewRect
+                } else {
+                    adjustedRect = CGRect(
+                        x: viewRect.minX,
+                        y: bounds.height - viewRect.maxY,
+                        width: viewRect.width,
+                        height: viewRect.height
+                    )
+                }
+                onHighlightTapped?(HighlightTapInfo(highlightID: highlightID, screenRect: adjustedRect))
                 return
             }
         }
+        // No annotation tapped - notify to dismiss any popover
+        onBackgroundTapped?()
         super.mouseDown(with: event)
     }
 }
