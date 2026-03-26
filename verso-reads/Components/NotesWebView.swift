@@ -17,10 +17,11 @@ struct NotesWebView: NSViewRepresentable {
     let pendingQuoteInsertion: QuoteInsertion?
     let onContentChange: (String) -> Void
     let onQuoteClick: (UUID) -> Void
+    let onQuoteRemove: (UUID) -> Void
     let onQuoteInserted: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onContentChange: onContentChange, onQuoteClick: onQuoteClick, onQuoteInserted: onQuoteInserted)
+        Coordinator(onContentChange: onContentChange, onQuoteClick: onQuoteClick, onQuoteRemove: onQuoteRemove, onQuoteInserted: onQuoteInserted)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -68,11 +69,13 @@ struct NotesWebView: NSViewRepresentable {
         private var pendingQuoteInsertion: QuoteInsertion?
         private let onContentChange: (String) -> Void
         private let onQuoteClick: (UUID) -> Void
+        private let onQuoteRemove: (UUID) -> Void
         private let onQuoteInserted: () -> Void
 
-        init(onContentChange: @escaping (String) -> Void, onQuoteClick: @escaping (UUID) -> Void, onQuoteInserted: @escaping () -> Void) {
+        init(onContentChange: @escaping (String) -> Void, onQuoteClick: @escaping (UUID) -> Void, onQuoteRemove: @escaping (UUID) -> Void, onQuoteInserted: @escaping () -> Void) {
             self.onContentChange = onContentChange
             self.onQuoteClick = onQuoteClick
+            self.onQuoteRemove = onQuoteRemove
             self.onQuoteInserted = onQuoteInserted
         }
 
@@ -192,6 +195,14 @@ struct NotesWebView: NSViewRepresentable {
                     }
                 }
 
+            case "quote-remove":
+                if let annotationIdString = payload["annotationId"] as? String,
+                   let annotationId = UUID(uuidString: annotationIdString) {
+                    DispatchQueue.main.async {
+                        self.onQuoteRemove(annotationId)
+                    }
+                }
+
             default:
                 break
             }
@@ -257,6 +268,7 @@ private final class NotesWKWebView: WKWebView {
         pendingQuoteInsertion: nil,
         onContentChange: { _ in },
         onQuoteClick: { _ in },
+        onQuoteRemove: { _ in },
         onQuoteInserted: {}
     )
     .frame(width: 320, height: 320)

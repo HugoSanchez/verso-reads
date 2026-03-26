@@ -11,11 +11,6 @@ struct HighlightTapInfo {
     let screenRect: CGRect
 }
 
-struct NoteQuoteTapInfo {
-    let quoteID: UUID
-    let screenRect: CGRect
-}
-
 struct PDFKitView: NSViewRepresentable {
     let document: PDFDocument
     let highlights: [Annotation]
@@ -25,7 +20,8 @@ struct PDFKitView: NSViewRepresentable {
     let controller: PDFReaderController
     let availableWidth: CGFloat
     let onPinTapped: (UUID) -> Void
-    let onNoteQuoteTapped: (NoteQuoteTapInfo) -> Void
+    let onNoteQuoteTapped: (UUID) -> Void
+    let onNoteQuoteRemove: (UUID) -> Void
     let onHighlightTapped: (HighlightTapInfo) -> Void
     let onBackgroundTapped: () -> Void
 
@@ -50,6 +46,7 @@ struct PDFKitView: NSViewRepresentable {
         if let pinView = view as? PinPDFView {
             pinView.onPinTapped = onPinTapped
             pinView.onNoteQuoteTapped = onNoteQuoteTapped
+            pinView.onNoteQuoteRemove = onNoteQuoteRemove
             pinView.onHighlightTapped = onHighlightTapped
             pinView.onBackgroundTapped = onBackgroundTapped
         }
@@ -73,6 +70,7 @@ struct PDFKitView: NSViewRepresentable {
         if let pinView = nsView as? PinPDFView {
             pinView.onPinTapped = onPinTapped
             pinView.onNoteQuoteTapped = onNoteQuoteTapped
+            pinView.onNoteQuoteRemove = onNoteQuoteRemove
             pinView.onHighlightTapped = onHighlightTapped
             pinView.onBackgroundTapped = onBackgroundTapped
         }
@@ -389,7 +387,8 @@ struct PDFKitView: NSViewRepresentable {
         controller: PDFReaderController(),
         availableWidth: 800,
         onPinTapped: { _ in },
-        onNoteQuoteTapped: { (_: NoteQuoteTapInfo) in },
+        onNoteQuoteTapped: { _ in },
+        onNoteQuoteRemove: { _ in },
         onHighlightTapped: { (_: HighlightTapInfo) in },
         onBackgroundTapped: {}
     )
@@ -398,7 +397,8 @@ struct PDFKitView: NSViewRepresentable {
 
 final class PinPDFView: PDFView {
     var onPinTapped: ((UUID) -> Void)?
-    var onNoteQuoteTapped: ((NoteQuoteTapInfo) -> Void)?
+    var onNoteQuoteTapped: ((UUID) -> Void)?
+    var onNoteQuoteRemove: ((UUID) -> Void)?
     var onHighlightTapped: ((HighlightTapInfo) -> Void)?
     var onBackgroundTapped: (() -> Void)?
     private var isShowingPointingHand = false
@@ -461,22 +461,7 @@ final class PinPDFView: PDFView {
                 return
             }
             if let quoteAnnotation = page.annotation(at: pagePoint) as? NoteQuotePDFAnnotation {
-                // Convert annotation bounds to view coordinates for delete button positioning
-                let pageBounds = quoteAnnotation.bounds
-                let viewRect = convert(pageBounds, from: page)
-                // Flip Y coordinate if view is not flipped
-                let adjustedRect: CGRect
-                if isFlipped {
-                    adjustedRect = viewRect
-                } else {
-                    adjustedRect = CGRect(
-                        x: viewRect.minX,
-                        y: bounds.height - viewRect.maxY,
-                        width: viewRect.width,
-                        height: viewRect.height
-                    )
-                }
-                onNoteQuoteTapped?(NoteQuoteTapInfo(quoteID: quoteAnnotation.quoteID, screenRect: adjustedRect))
+                onNoteQuoteTapped?(quoteAnnotation.quoteID)
                 return
             }
             // Check for highlight annotation
@@ -506,6 +491,28 @@ final class PinPDFView: PDFView {
         // No annotation tapped - notify to dismiss any popover
         onBackgroundTapped?()
         super.mouseDown(with: event)
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let location = convert(event.locationInWindow, from: nil)
+        if let page = page(for: location, nearest: true) {
+            let pagePoint = convert(location, to: page)
+            if let quoteAnnotation = page.annotation(at: pagePoint) as? NoteQuotePDFAnnotation {
+                let menu = NSMenu()
+                menu.allowsContextMenuPlugIns = false
+                let removeItem = NSMenuItem(title: "Remove", action: #selector(removeNoteQuoteFromMenu(_:)), keyEquivalent: "")
+                removeItem.representedObject = quoteAnnotation.quoteID
+                removeItem.target = self
+                menu.addItem(removeItem)
+                return menu
+            }
+        }
+        return super.menu(for: event)
+    }
+
+    @objc private func removeNoteQuoteFromMenu(_ sender: NSMenuItem) {
+        guard let quoteID = sender.representedObject as? UUID else { return }
+        onNoteQuoteRemove?(quoteID)
     }
 }
 

@@ -23,6 +23,7 @@ struct NotepadView: View {
             pendingQuoteInsertion: pendingQuoteInsertion,
             onContentChange: handleContentChange,
             onQuoteClick: handleQuoteClick,
+            onQuoteRemove: handleQuoteRemove,
             onQuoteInserted: { pendingQuoteInsertion = nil }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -98,6 +99,28 @@ struct NotepadView: View {
 
     private func handleQuoteClick(_ annotationId: UUID) {
         readerSession.noteQuoteNavigation.send(annotationId)
+    }
+
+    private func handleQuoteRemove(_ annotationId: UUID) {
+        do {
+            let predicate = #Predicate<Annotation> { annotation in
+                annotation.id == annotationId
+            }
+            var descriptor = FetchDescriptor<Annotation>(predicate: predicate)
+            descriptor.fetchLimit = 1
+            guard let annotation = try modelContext.fetch(descriptor).first else { return }
+
+            // Clear the highlight if this quote was active
+            if readerSession.activeNoteQuoteAnchor == annotation.anchorData {
+                readerSession.activeNoteQuoteAnchor = nil
+            }
+
+            modelContext.delete(annotation)
+            try modelContext.save()
+            print("[NotepadView] removed note quote: \(annotationId)")
+        } catch {
+            print("[NotepadView] failed to remove note quote: \(error)")
+        }
     }
 
     private func handlePendingNoteQuote(_ insertion: NoteQuoteInsertion?) {

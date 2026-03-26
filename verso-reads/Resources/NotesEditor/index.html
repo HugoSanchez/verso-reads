@@ -56,14 +56,52 @@
     }
     .ProseMirror blockquote {
       margin: 0 0 0.75em;
+      margin-left: 20px;
       padding-left: 12px;
       border-left: 2px solid rgba(0, 0, 0, 0.1);
       color: rgba(0, 0, 0, 0.7);
       cursor: pointer;
       transition: border-left-color 0.15s ease;
+      position: relative;
+    }
+    .ProseMirror blockquote::before {
+      content: '';
+      position: absolute;
+      left: -20px;
+      top: 0;
+      bottom: 0;
+      width: 20px;
     }
     .ProseMirror blockquote:hover {
       border-left-color: rgba(0, 122, 255, 0.5);
+    }
+    .ProseMirror blockquote p:last-child {
+      margin-bottom: 0;
+    }
+    .quote-remove-btn {
+      display: none;
+      position: absolute;
+      left: -20px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      font-size: 10px;
+      line-height: 14px;
+      text-align: center;
+      color: rgba(0, 0, 0, 0.3);
+      cursor: pointer;
+      border-radius: 50%;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .quote-remove-btn:hover {
+      color: rgba(220, 50, 50, 0.8);
+      background: rgba(220, 50, 50, 0.08);
+    }
+    .ProseMirror blockquote:hover .quote-remove-btn {
+      display: block;
     }
     .ProseMirror-focused {
       outline: none;

@@ -30,7 +30,6 @@ struct ReaderCanvasView: View {
     @State private var lastSelectionInfo: PDFReaderController.SelectionInfo?
     @State private var showSelectionOverlay = false
     @State private var selectedHighlightInfo: HighlightTapInfo?
-    @State private var selectedNoteQuoteInfo: NoteQuoteTapInfo?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -74,15 +73,14 @@ struct ReaderCanvasView: View {
                                 availableWidth: proxy.size.width,
                                 onPinTapped: handlePinTapped,
                                 onNoteQuoteTapped: handleNoteQuoteTapped,
+                                onNoteQuoteRemove: removeNoteQuote,
                                 onHighlightTapped: handleHighlightTapped,
                                 onBackgroundTapped: {
                                     selectedHighlightInfo = nil
-                                    selectedNoteQuoteInfo = nil
                                 }
                             )
                             selectionOverlay(in: proxy.size)
                             highlightPopover(in: proxy.size)
-                            noteQuoteDeleteButton(in: proxy.size)
                         }
                     }
                     .background(Color.white)
@@ -116,7 +114,6 @@ struct ReaderCanvasView: View {
             lastSelectionInfo = nil
             showSelectionOverlay = false
             selectedHighlightInfo = nil
-            selectedNoteQuoteInfo = nil
         }
     }
 
@@ -440,19 +437,12 @@ struct ReaderCanvasView: View {
         filteredAnnotations.filter { $0.kind == .noteQuote }
     }
 
-    private func handleNoteQuoteTapped(_ info: NoteQuoteTapInfo) {
+    private func handleNoteQuoteTapped(_ quoteID: UUID) {
         // Find the annotation to get its anchor data
-        guard let annotation = noteQuoteAnnotations.first(where: { $0.id == info.quoteID }) else { return }
+        guard let annotation = noteQuoteAnnotations.first(where: { $0.id == quoteID }) else { return }
 
         // Clear any active pin highlight
         onClearPinHighlight()
-
-        // Toggle delete button if clicking the same quote, otherwise show for new quote
-        if selectedNoteQuoteInfo?.quoteID == info.quoteID {
-            selectedNoteQuoteInfo = nil
-        } else {
-            selectedNoteQuoteInfo = info
-        }
 
         // Toggle highlight if clicking the same quote, otherwise show new highlight
         if readerSession.activeNoteQuoteAnchor == annotation.anchorData {
@@ -484,6 +474,12 @@ struct ReaderCanvasView: View {
                 onColorChange: { color in
                     changeHighlightColor(highlight, to: color)
                 },
+                onAddToChat: {
+                    addHighlightToChat(highlight)
+                },
+                onAddToNotes: {
+                    addHighlightToNotes(highlight)
+                },
                 onRemove: {
                     removeHighlight(highlight)
                 }
@@ -493,7 +489,7 @@ struct ReaderCanvasView: View {
     }
 
     private func highlightPopoverPosition(for rect: CGRect, in size: CGSize) -> CGPoint {
-        let popoverWidth: CGFloat = 200
+        let popoverWidth: CGFloat = 380
         let popoverHeight: CGFloat = 36
         let padding: CGFloat = 10
 
@@ -521,6 +517,38 @@ struct ReaderCanvasView: View {
         return CGPoint(x: x, y: y)
     }
 
+    private func addHighlightToChat(_ highlight: Annotation) {
+        let text = highlight.quote ?? ""
+        let context = ChatContext(text: text, anchorData: highlight.anchorData)
+        onAddSelectionToChat(context)
+        selectedHighlightInfo = nil
+    }
+
+    private func addHighlightToNotes(_ highlight: Annotation) {
+        guard let documentID = activeDocument?.id else { return }
+        let quote = highlight.quote ?? ""
+
+        do {
+            let noteQuote = Annotation(
+                documentID: documentID,
+                kind: .noteQuote,
+                anchorData: highlight.anchorData,
+                quote: quote
+            )
+            modelContext.insert(noteQuote)
+            try modelContext.save()
+            readerSession.pendingNoteQuote = NoteQuoteInsertion(
+                annotationID: noteQuote.id,
+                documentID: documentID,
+                quote: quote
+            )
+            isRightPanelVisible = true
+        } catch {
+            print("Failed to save note quote from highlight: \(error)")
+        }
+        selectedHighlightInfo = nil
+    }
+
     private func changeHighlightColor(_ highlight: Annotation, to color: HighlightColor) {
         highlight.colorRawValue = color.rawValue
         do {
@@ -539,38 +567,6 @@ struct ReaderCanvasView: View {
             print("Failed to remove highlight: \(error)")
         }
         selectedHighlightInfo = nil
-    }
-
-    @ViewBuilder
-    private func noteQuoteDeleteButton(in size: CGSize) -> some View {
-        if let info = selectedNoteQuoteInfo {
-            // Position the X button at top-right corner of the marker
-            let buttonSize: CGFloat = 14
-            let x = info.screenRect.maxX + buttonSize / 2 - 2
-            let y = info.screenRect.minY - buttonSize / 2 + 2
-
-            Button {
-                removeNoteQuote(info.quoteID)
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.red.opacity(0.9))
-                        .frame(width: buttonSize, height: buttonSize)
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .buttonStyle(.plain)
-            .position(x: x, y: y)
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
-        }
     }
 
     private func removeNoteQuote(_ quoteID: UUID) {
@@ -594,7 +590,6 @@ struct ReaderCanvasView: View {
         } catch {
             print("[NoteQuote] Failed to remove note quote: \(error)")
         }
-        selectedNoteQuoteInfo = nil
     }
 }
 

@@ -18300,13 +18300,47 @@ img.ProseMirror-separator {
           }
         }
       };
+    },
+    addNodeView() {
+      return ({ node, HTMLAttributes, getPos }) => {
+        const dom = document.createElement("blockquote");
+        for (const [key, value] of Object.entries(HTMLAttributes)) {
+          if (value != null)
+            dom.setAttribute(key, value);
+        }
+        const content = document.createElement("div");
+        dom.appendChild(content);
+        const annotationId = node.attrs.annotationId;
+        if (annotationId) {
+          const removeBtn = document.createElement("span");
+          removeBtn.className = "quote-remove-btn";
+          removeBtn.textContent = "\xD7";
+          removeBtn.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const pos = typeof getPos === "function" ? getPos() : null;
+            if (pos != null && editorInstance) {
+              const nodeSize2 = node.nodeSize;
+              editorInstance.commands.deleteRange({
+                from: pos,
+                to: pos + nodeSize2
+              });
+              scheduleContentPost();
+            }
+            postMessage({ type: "quote-remove", annotationId });
+          });
+          dom.appendChild(removeBtn);
+        }
+        return { dom, contentDOM: content };
+      };
     }
   });
   var editorInstance = null;
   var isApplyingContent = false;
   var updateTimer = null;
   var postMessage = (payload) => {
-    if (window.webkit?.messageHandlers?.notes) {
+    var _a, _b;
+    if ((_b = (_a = window.webkit) == null ? void 0 : _a.messageHandlers) == null ? void 0 : _b.notes) {
       window.webkit.messageHandlers.notes.postMessage(payload);
     }
   };
@@ -18417,12 +18451,13 @@ img.ProseMirror-separator {
     if (!editorInstance) {
       return;
     }
-    editorInstance.commands.focus("end");
+    const nodes = [];
     const { state } = editorInstance;
-    if (state.doc.content.size > 2) {
-      editorInstance.commands.insertContent("<p></p>");
+    const docSize = state.doc.content.size;
+    if (docSize > 2) {
+      nodes.push({ type: "paragraph" });
     }
-    editorInstance.commands.insertContent({
+    nodes.push({
       type: "blockquote",
       attrs: { annotationId },
       content: [
@@ -18432,7 +18467,9 @@ img.ProseMirror-separator {
         }
       ]
     });
-    editorInstance.commands.insertContent("<p></p>");
+    nodes.push({ type: "paragraph" });
+    const endPos = state.doc.content.size;
+    editorInstance.chain().insertContentAt(endPos, nodes).focus("end").run();
     scheduleContentPost();
   };
 })();

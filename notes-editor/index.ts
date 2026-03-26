@@ -12,7 +12,7 @@ declare global {
   }
 }
 
-// Custom Blockquote extension with annotationId attribute
+// Custom Blockquote extension with annotationId attribute and remove button
 const CustomBlockquote = Blockquote.extend({
   addAttributes() {
     return {
@@ -26,6 +26,45 @@ const CustomBlockquote = Blockquote.extend({
           return { "data-annotation-id": attributes.annotationId };
         },
       },
+    };
+  },
+
+  addNodeView() {
+    return ({ node, HTMLAttributes, getPos }) => {
+      const dom = document.createElement("blockquote");
+      // Apply attributes
+      for (const [key, value] of Object.entries(HTMLAttributes)) {
+        if (value != null) dom.setAttribute(key, value);
+      }
+
+      const content = document.createElement("div");
+      dom.appendChild(content);
+
+      const annotationId = node.attrs.annotationId;
+      if (annotationId) {
+        const removeBtn = document.createElement("span");
+        removeBtn.className = "quote-remove-btn";
+        removeBtn.textContent = "×";
+        removeBtn.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const pos = typeof getPos === "function" ? getPos() : null;
+          if (pos != null && editorInstance) {
+            // Delete the blockquote node from the editor
+            const nodeSize = node.nodeSize;
+            editorInstance.commands.deleteRange({
+              from: pos,
+              to: pos + nodeSize,
+            });
+            scheduleContentPost();
+          }
+          // Notify Swift to delete the annotation
+          postMessage({ type: "quote-remove", annotationId });
+        });
+        dom.appendChild(removeBtn);
+      }
+
+      return { dom, contentDOM: content };
     };
   },
 });
@@ -165,14 +204,18 @@ window.VersoNotesInsertQuote = (quote: string, annotationId: string) => {
     return;
   }
 
-  editorInstance.commands.focus("end");
+  // Build the nodes to append at the document level
+  const nodes: JSONContent[] = [];
 
   const { state } = editorInstance;
-  if (state.doc.content.size > 2) {
-    editorInstance.commands.insertContent("<p></p>");
+  const docSize = state.doc.content.size;
+
+  // Add a spacer paragraph before the blockquote if there's existing content
+  if (docSize > 2) {
+    nodes.push({ type: "paragraph" });
   }
 
-  editorInstance.commands.insertContent({
+  nodes.push({
     type: "blockquote",
     attrs: { annotationId },
     content: [
@@ -183,6 +226,16 @@ window.VersoNotesInsertQuote = (quote: string, annotationId: string) => {
     ],
   });
 
-  editorInstance.commands.insertContent("<p></p>");
+  // Empty paragraph after so user can type below
+  nodes.push({ type: "paragraph" });
+
+  // Insert all at once at the end of the document to avoid cursor positioning issues
+  const endPos = state.doc.content.size;
+  editorInstance
+    .chain()
+    .insertContentAt(endPos, nodes)
+    .focus("end")
+    .run();
+
   scheduleContentPost();
 };
