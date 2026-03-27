@@ -27,12 +27,17 @@ final class OpenAISettingsStore: ObservableObject {
     }
 
     func load() {
-        do {
-            if let storedKey = try KeychainStore.read(service: keychainService, account: keychainAccount) {
-                apiKey = storedKey
+        // In development, check environment variable or .env file first to avoid Keychain password prompts
+        if let devKey = OpenAISettingsStore.devAPIKey() {
+            apiKey = devKey
+        } else {
+            do {
+                if let storedKey = try KeychainStore.read(service: keychainService, account: keychainAccount) {
+                    apiKey = storedKey
+                }
+            } catch {
+                statusMessage = "Could not read API key."
             }
-        } catch {
-            statusMessage = "Could not read API key."
         }
 
         if let storedModel = UserDefaults.standard.string(forKey: modelDefaultsKey),
@@ -63,6 +68,35 @@ final class OpenAISettingsStore: ObservableObject {
         } catch {
             statusMessage = "Unable to save key."
         }
+    }
+
+    /// Check for API key in environment variable or .env file (for development convenience).
+    static func devAPIKey() -> String? {
+        // 1. Check environment variable (set via Xcode scheme)
+        if let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"],
+           envKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return envKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // 2. Check .env file in the project source root
+        #if DEBUG
+        if let sourceRoot = ProcessInfo.processInfo.environment["SRCROOT"] ?? Bundle.main.resourceURL?.deletingLastPathComponent().path {
+            let envFilePath = (sourceRoot as NSString).appendingPathComponent(".env")
+            if let contents = try? String(contentsOfFile: envFilePath, encoding: .utf8) {
+                for line in contents.components(separatedBy: .newlines) {
+                    let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("OPENAI_API_KEY=") {
+                        let value = String(trimmed.dropFirst("OPENAI_API_KEY=".count))
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                        if !value.isEmpty { return value }
+                    }
+                }
+            }
+        }
+        #endif
+
+        return nil
     }
 
     private func scheduleStatusClearIfNeeded() {
