@@ -95,7 +95,12 @@ actor RAGIngestionManager {
     }
 
     private func loadAPIKey() async throws -> String {
-        try await MainActor.run {
+        // Check env var / .env file first (avoids Keychain prompts during development)
+        if let devKey = await OpenAISettingsStore.devAPIKey() {
+            return devKey
+        }
+
+        return try await MainActor.run {
             let bundleID = Bundle.main.bundleIdentifier ?? "verso-reads"
             let service = "\(bundleID).openai"
             let account = "openai-api-key"
