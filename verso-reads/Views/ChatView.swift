@@ -14,6 +14,7 @@ struct ChatView: View {
     @ObservedObject var settings: OpenAISettingsStore
     @Binding var pinnedPreview: PinnedChatPreview?
     @Binding var activeDocument: LibraryDocument?
+    var showInput: Bool = true
 
     @State private var inputText: String = ""
     @State private var isSending = false
@@ -34,7 +35,9 @@ struct ChatView: View {
             chatContent
 
             // Input area
-            chatInput
+            if showInput {
+                chatInput
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

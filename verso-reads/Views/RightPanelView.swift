@@ -17,6 +17,8 @@ struct RightPanelView: View {
 
     @AppStorage("ui.rightPanelWidth.sidebar") private var panelWidthWithSidebar: Double = 360
     @AppStorage("ui.rightPanelWidth.fullWidth") private var panelWidthFullWidth: Double = 400
+    @AppStorage("ui.rightPanel.notesRatio") private var notesRatio: Double = 0.5
+    @State private var isHoveringSplitHandle = false
     @State private var isHoveringResizeHandle = false
 
     private let minPanelWidth: Double = 320
@@ -29,21 +31,50 @@ struct RightPanelView: View {
             Divider()
 
             // Panel content
-            VStack(spacing: 0) {
-                // Top section (notepad)
-                NotepadView()
+            GeometryReader { geo in
+                let headerHeight: CGFloat = 28
+                let handleHeight: CGFloat = 9
+                let totalFixed = headerHeight * 2 + handleHeight
+                let available = max(geo.size.height - totalFixed, 0)
+                let notesHeight = available * notesRatio
+                let chatHeight = available * (1 - notesRatio)
 
-                Divider()
+                VStack(spacing: 0) {
+                    // Notes section
+                    PanelSectionHeader(title: "Notes")
 
-                // Bottom section (chat)
-                ChatView(
-                    context: $chatContext,
-                    messages: $messages,
-                    settings: settings,
-                    pinnedPreview: $pinnedPreview,
-                    activeDocument: $activeDocument
-                )
-                .padding(.top, 8)
+                    NotepadView()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: notesHeight)
+
+                    // Draggable split handle
+                    ZStack {
+                        VerticalSplitHandle(
+                            ratio: $notesRatio,
+                            isHovering: $isHoveringSplitHandle,
+                            availableHeight: available
+                        )
+                        Divider()
+                    }
+                    .frame(height: handleHeight)
+                    .background(isHoveringSplitHandle ? Color.black.opacity(0.06) : Color.clear)
+
+                    // Chat section
+                    PanelSectionHeader(title: "Chat")
+
+                    ChatView(
+                        context: $chatContext,
+                        messages: $messages,
+                        settings: settings,
+                        pinnedPreview: $pinnedPreview,
+                        activeDocument: $activeDocument,
+                        showInput: chatHeight > 120
+                    )
+                    .padding(.top, 4)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: chatHeight)
+                    .clipped()
+                }
             }
         }
         .frame(width: CGFloat(panelWidth.wrappedValue))
@@ -67,6 +98,137 @@ struct RightPanelView: View {
         .onAppear {
             panelWidthWithSidebar = min(max(panelWidthWithSidebar, minPanelWidth), maxPanelWidth)
             panelWidthFullWidth = min(max(panelWidthFullWidth, minPanelWidth), maxPanelWidth)
+        }
+    }
+}
+
+private struct PanelSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.black.opacity(0.5))
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 28)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct VerticalSplitHandle: NSViewRepresentable {
+    @Binding var ratio: Double
+    @Binding var isHovering: Bool
+    let availableHeight: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(ratio: $ratio, isHovering: $isHovering, availableHeight: availableHeight)
+    }
+
+    func makeNSView(context: Context) -> SplitHandleView {
+        let view = SplitHandleView()
+        view.onHoverChanged = { hovering in
+            context.coordinator.isHovering.wrappedValue = hovering
+        }
+        view.onDragChanged = { deltaY in
+            context.coordinator.apply(deltaY: deltaY)
+        }
+        view.onDragEnded = {
+            context.coordinator.endDrag()
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: SplitHandleView, context: Context) {
+        context.coordinator.ratio = $ratio
+        context.coordinator.isHovering = $isHovering
+        context.coordinator.availableHeight = availableHeight
+    }
+
+    final class Coordinator {
+        var ratio: Binding<Double>
+        var isHovering: Binding<Bool>
+        var availableHeight: CGFloat
+        var startRatio: Double?
+
+        init(ratio: Binding<Double>, isHovering: Binding<Bool>, availableHeight: CGFloat) {
+            self.ratio = ratio
+            self.isHovering = isHovering
+            self.availableHeight = availableHeight
+        }
+
+        func apply(deltaY: CGFloat) {
+            if startRatio == nil { startRatio = ratio.wrappedValue }
+            guard availableHeight > 0 else { return }
+            let delta = Double(deltaY) / Double(availableHeight)
+            let proposed = (startRatio ?? ratio.wrappedValue) - delta
+            ratio.wrappedValue = min(max(proposed, 0.0), 1.0)
+        }
+
+        func endDrag() {
+            startRatio = nil
+        }
+    }
+
+    final class SplitHandleView: NSView {
+        var onHoverChanged: ((Bool) -> Void)?
+        var onDragChanged: ((CGFloat) -> Void)?
+        var onDragEnded: (() -> Void)?
+
+        private var trackingArea: NSTrackingArea?
+        private var isDragging = false
+        private var startYInWindow: CGFloat = 0
+
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let trackingArea { removeTrackingArea(trackingArea) }
+            let area = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            trackingArea = area
+        }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeUpDown)
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            super.mouseEntered(with: event)
+            onHoverChanged?(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            super.mouseExited(with: event)
+            if !isDragging { onHoverChanged?(false) }
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            super.mouseDown(with: event)
+            isDragging = true
+            startYInWindow = event.locationInWindow.y
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            super.mouseDragged(with: event)
+            let deltaY = event.locationInWindow.y - startYInWindow
+            onDragChanged?(deltaY)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            super.mouseUp(with: event)
+            isDragging = false
+            onDragEnded?()
+            let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+            onHoverChanged?(inside)
         }
     }
 }
