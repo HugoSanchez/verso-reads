@@ -20,14 +20,13 @@ struct ChatView: View {
     @State private var isSending = false
     @State private var errorMessage: String?
     @State private var renderedText: [UUID: NSAttributedString] = [:]
-    @State private var pendingRenders: Set<UUID> = []
-    @State private var lastRenderAt: [UUID: Date] = [:]
+    @State private var streamingMessageID: UUID?
     @State private var inputHeight: CGFloat = 22
     @State private var isInputFocused = false
-    
-    private let renderInterval: TimeInterval = 0.02
+    @State private var toolStatus: String?
+
     private let messageFontSize: CGFloat = 12
-    private let historyLimit: Int = 12
+    private let historyLimit: Int = 50
 
     var body: some View {
         VStack(spacing: 0) {
@@ -173,6 +172,17 @@ struct ChatView: View {
                             background: Color.clear,
                             maxWidth: .infinity
                         )
+                        if let status = toolStatus, isSending, message.content.isEmpty || messages.last?.id == message.id {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(status)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Color.black.opacity(0.45))
+                                    .italic()
+                            }
+                            .padding(.leading, 10)
+                        }
                         if canPin(message) {
                             Button("Pin answer to text") {
                                 pinAnswer(message)
@@ -277,20 +287,55 @@ struct ChatView: View {
         let client = OpenAIClient(apiKey: apiKey, model: model.isEmpty ? "gpt-5.2" : model)
 
         isSending = true
+        toolStatus = nil
 
         Task {
             do {
-                let contextText = await resolveContext(question: trimmed, apiKey: apiKey)
-                let prompt = buildPrompt(question: trimmed, context: contextText)
-                let conversation = buildConversationMessages(from: historyMessages, userPrompt: prompt)
-                for try await delta in client.streamResponse(systemPrompt: systemPrompt, messages: conversation) {
+                // Build the user prompt with selection context if available
+                let userPrompt: String
+                if let selectionText, selectionText.isEmpty == false {
+                    userPrompt = "Selected text:\n\(selectionText)\n\nQuestion:\n\(trimmed)"
+                } else {
+                    userPrompt = trimmed
+                }
+
+                let conversation = buildConversationMessages(from: historyMessages, userPrompt: userPrompt)
+                let documentTitle = activeDocument?.title ?? "Unknown Document"
+
+                let executor = ToolExecutor(
+                    documentID: activeDocument?.id ?? UUID(),
+                    apiKey: apiKey,
+                    modelContext: modelContext
+                )
+
+                let agentLoop = AgentLoop(
+                    client: client,
+                    systemPrompt: AgentLoop.buildSystemPrompt(documentTitle: documentTitle),
+                    tools: AgentTools.all,
+                    toolExecutor: executor
+                )
+
+                for try await event in agentLoop.run(messages: conversation) {
                     await MainActor.run {
-                        appendDelta(delta, to: assistantID)
+                        switch event {
+                        case .textDelta(let delta):
+                            appendDelta(delta, to: assistantID)
+                        case .toolCallStarted(let name):
+                            toolStatus = toolStatusText(for: name)
+                        case .toolCallCompleted:
+                            toolStatus = nil
+                        case .completed:
+                            break
+                        case .error(let error):
+                            errorMessage = error.localizedDescription
+                        }
                     }
                 }
+
                 await MainActor.run {
                     isSending = false
-                    renderNow(for: assistantID)
+                    toolStatus = nil
+                    finalizeRender(for: assistantID)
                     persistAssistantMessageIfNeeded(id: assistantID)
 #if DEBUG
                     if let message = messages.first(where: { $0.id == assistantID }) {
@@ -302,9 +347,19 @@ struct ChatView: View {
             } catch {
                 await MainActor.run {
                     isSending = false
+                    toolStatus = nil
                     errorMessage = error.localizedDescription
                 }
             }
+        }
+    }
+
+    private func toolStatusText(for toolName: String) -> String {
+        switch toolName {
+        case "search_document": return "Searching document..."
+        case "read_highlights": return "Reading highlights..."
+        case "read_notes": return "Reading notes..."
+        default: return "Working..."
         }
     }
 
@@ -320,16 +375,7 @@ struct ChatView: View {
         return Color.black.opacity(0.3)
     }
 
-    private var systemPrompt: String {
-        "You are a helpful reading assistant. Be concise and reference the provided text when possible."
-    }
-
-    private func buildPrompt(question: String, context: String?) -> String {
-        if let context, context.isEmpty == false {
-            return "Context:\n\(context)\n\nQuestion:\n\(question)"
-        }
-        return question
-    }
+    // System prompt is now built by AgentLoop.buildSystemPrompt(documentTitle:)
 
     private func canPin(_ message: ChatMessage) -> Bool {
         guard message.role == .assistant else { return false }
@@ -426,25 +472,7 @@ struct ChatView: View {
         return mapped + [OpenAIClient.Message(role: "user", content: userPrompt)]
     }
 
-    private func resolveContext(question: String, apiKey: String) async -> String? {
-        if let selectionText = context?.text, selectionText.isEmpty == false {
-            return selectionText
-        }
-
-        guard let activeDocument else { return nil }
-        guard apiKey.isEmpty == false else { return nil }
-
-        do {
-            return try await RAGQueryService.shared.retrieveContext(
-                documentID: activeDocument.id,
-                query: question,
-                apiKey: apiKey
-            )
-        } catch {
-            print("RAG context unavailable: \(error.localizedDescription)")
-            return nil
-        }
-    }
+    // RAG context resolution is now handled by the agent via the search_document tool
 
     @MainActor
     private func persistMessage(_ message: ChatMessage) {
@@ -500,6 +528,10 @@ struct ChatView: View {
     private func renderNow(for messageID: UUID) {
         guard let message = messages.first(where: { $0.id == messageID }) else { return }
         renderedText[messageID] = renderMarkdown(message.content)
+    }
+
+    private func finalizeRender(for messageID: UUID) {
+        renderNow(for: messageID)
     }
 
     private func scheduleRender(for messageID: UUID) {

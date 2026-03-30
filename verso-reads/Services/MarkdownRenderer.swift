@@ -9,24 +9,108 @@ import AppKit
 import Down
 
 enum MarkdownRenderer {
-    private static let debugEnabled: Bool = {
-        if ProcessInfo.processInfo.environment["VERSO_DEBUG_MARKDOWN"] == "1" {
-            return true
+
+    // MARK: - Primary render path (AST → NSAttributedString, no HTML/WebKit)
+
+    static func renderAttributed(_ markdown: String, fontSize: CGFloat, textColor: NSColor) -> NSAttributedString {
+        let styler = buildStyler(fontSize: fontSize, textColor: textColor)
+
+        do {
+            return try Down(markdownString: markdown).toAttributedString(.default, styler: styler)
+        } catch {
+            // Fallback: plain styled text
+            return NSAttributedString(
+                string: markdown,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: fontSize),
+                    .foregroundColor: textColor
+                ]
+            )
         }
-        return UserDefaults.standard.bool(forKey: "debug.markdown")
-    }()
+    }
+
+    // MARK: - Styler Configuration
+
+    private static func buildStyler(fontSize: CGFloat, textColor: NSColor) -> DownStyler {
+        let fonts = StaticFontCollection(
+            heading1: .boldSystemFont(ofSize: fontSize * 1.4),
+            heading2: .boldSystemFont(ofSize: fontSize * 1.25),
+            heading3: .boldSystemFont(ofSize: fontSize * 1.1),
+            heading4: .boldSystemFont(ofSize: fontSize),
+            heading5: .boldSystemFont(ofSize: fontSize),
+            heading6: .boldSystemFont(ofSize: fontSize),
+            body: .systemFont(ofSize: fontSize),
+            code: NSFont(name: "Menlo", size: fontSize * 0.92) ?? .monospacedSystemFont(ofSize: fontSize * 0.92, weight: .regular),
+            listItemPrefix: .monospacedDigitSystemFont(ofSize: fontSize, weight: .regular)
+        )
+
+        let colors = StaticColorCollection(
+            heading1: textColor,
+            heading2: textColor,
+            heading3: textColor,
+            heading4: textColor,
+            heading5: textColor,
+            heading6: textColor,
+            body: textColor,
+            code: textColor,
+            link: .systemBlue,
+            quote: NSColor.black.withAlphaComponent(0.6),
+            quoteStripe: NSColor.black.withAlphaComponent(0.15),
+            thematicBreak: NSColor.black.withAlphaComponent(0.1),
+            listItemPrefix: NSColor.black.withAlphaComponent(0.35),
+            codeBlockBackground: NSColor.black.withAlphaComponent(0.04)
+        )
+
+        let bodyStyle = NSMutableParagraphStyle()
+        bodyStyle.paragraphSpacing = fontSize * 0.6
+        bodyStyle.lineSpacing = fontSize * 0.35
+
+        let headingStyle = NSMutableParagraphStyle()
+        headingStyle.paragraphSpacing = fontSize * 0.5
+        headingStyle.paragraphSpacingBefore = fontSize * 0.3
+
+        let codeStyle = NSMutableParagraphStyle()
+        codeStyle.paragraphSpacing = fontSize * 0.4
+
+        var paragraphStyles = StaticParagraphStyleCollection()
+        paragraphStyles.heading1 = headingStyle
+        paragraphStyles.heading2 = headingStyle
+        paragraphStyles.heading3 = headingStyle
+        paragraphStyles.body = bodyStyle
+        paragraphStyles.code = codeStyle
+
+        let listItemOptions = ListItemOptions(
+            maxPrefixDigits: 2,
+            spacingAfterPrefix: fontSize * 0.5,
+            spacingAbove: fontSize * 0.35,
+            spacingBelow: fontSize * 0.5
+        )
+
+        let quoteStripeOptions = QuoteStripeOptions(
+            thickness: 2,
+            spacingAfter: fontSize * 0.6
+        )
+
+        let codeBlockOptions = CodeBlockOptions(
+            containerInset: fontSize * 0.5
+        )
+
+        let config = DownStylerConfiguration(
+            fonts: fonts,
+            colors: colors,
+            paragraphStyles: paragraphStyles,
+            listItemOptions: listItemOptions,
+            quoteStripeOptions: quoteStripeOptions,
+            codeBlockOptions: codeBlockOptions
+        )
+
+        return DownStyler(configuration: config)
+    }
+
+    // MARK: - HTML render (kept for pinned preview and other non-streaming uses)
 
     static func renderHTML(_ markdown: String, fontSize: CGFloat, textColorCSS: String) -> String {
         let htmlBody = (try? Down(markdownString: markdown).toHTML()) ?? fallbackHTML(from: markdown)
-
-        if debugEnabled {
-            print("=== MarkdownRenderer ===")
-            print("--- raw markdown ---")
-            print(markdown)
-            print("--- html body ---")
-            print(htmlBody)
-            print("=== end ===")
-        }
 
         return """
         <!doctype html>
@@ -73,40 +157,6 @@ enum MarkdownRenderer {
         </body>
         </html>
         """
-    }
-
-    static func renderAttributed(_ markdown: String, fontSize: CGFloat, textColor: NSColor) -> NSAttributedString {
-        let html = renderHTML(
-            markdown,
-            fontSize: fontSize,
-            textColorCSS: cssColor(from: textColor)
-        )
-
-        guard let data = html.data(using: .utf8) else {
-            return NSAttributedString(string: markdown)
-        }
-
-        let options: [NSAttributedString.DocumentReadingOptionKey: Any] = [
-            .documentType: NSAttributedString.DocumentType.html,
-            .characterEncoding: String.Encoding.utf8.rawValue
-        ]
-
-        if let attributed = try? NSAttributedString(data: data, options: options, documentAttributes: nil) {
-            return attributed
-        }
-
-        return NSAttributedString(string: markdown)
-    }
-
-    private static func cssColor(from color: NSColor) -> String {
-        let resolved = color.usingColorSpace(.deviceRGB) ?? color
-        return String(
-            format: "rgba(%.0f, %.0f, %.0f, %.2f)",
-            resolved.redComponent * 255,
-            resolved.greenComponent * 255,
-            resolved.blueComponent * 255,
-            resolved.alphaComponent
-        )
     }
 
     private static func fallbackHTML(from markdown: String) -> String {
