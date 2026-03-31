@@ -9,6 +9,7 @@ import SwiftData
 
 struct ChatView: View {
     @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var readerSession: ReaderSession
     @Binding var context: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
@@ -19,21 +20,18 @@ struct ChatView: View {
     @State private var inputText: String = ""
     @State private var isSending = false
     @State private var errorMessage: String?
-    @State private var renderedText: [UUID: NSAttributedString] = [:]
     @State private var streamingMessageID: UUID?
     @State private var inputHeight: CGFloat = 22
     @State private var isInputFocused = false
     @State private var toolStatus: String?
+    @State private var activeTask: Task<Void, Never>?
 
-    private let messageFontSize: CGFloat = 12
     private let historyLimit: Int = 50
 
     var body: some View {
         VStack(spacing: 0) {
-            // Chat content area
             chatContent
 
-            // Input area
             if showInput {
                 chatInput
             }
@@ -42,42 +40,24 @@ struct ChatView: View {
     }
 
     private var chatContent: some View {
-        Group {
-            if messages.isEmpty && pinnedPreview == nil {
-                VStack {
-                    Spacer()
-                    Text("No chats yet")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.black.opacity(0.4))
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
-                            if let preview = pinnedPreview {
-                                pinnedPreviewCard(preview)
-                            }
-                            ForEach(messages) { message in
-                                chatBubble(for: message)
-                                    .id(message.id)
-                            }
-                        }
-                        .padding(16)
-                    }
-                    .scrollIndicators(.hidden)
-                    .onChange(of: pinnedPreview?.assistantMessageID) { _, newValue in
-                        guard let targetID = newValue else { return }
-                        guard messages.contains(where: { $0.id == targetID }) else { return }
-                        DispatchQueue.main.async {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                proxy.scrollTo(targetID, anchor: .center)
-                            }
-                        }
-                    }
-                }
+        VStack(spacing: 0) {
+            if let preview = pinnedPreview {
+                pinnedPreviewCard(preview)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
             }
+
+            ChatWebView(
+                messages: messages,
+                streamingMessageID: streamingMessageID,
+                toolStatus: toolStatus,
+                onPinClick: { messageID in
+                    if let message = messages.first(where: { $0.id == messageID }) {
+                        pinAnswer(message)
+                    }
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -128,13 +108,22 @@ struct ChatView: View {
                     .frame(height: inputHeight)
                 }
 
-                Button(action: sendMessage) {
-                    Image(systemName: "paperplane")
-                        .font(.system(size: 14))
-                        .foregroundStyle(sendButtonColor)
+                if isSending {
+                    Button(action: cancelGeneration) {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Color.black.opacity(0.45))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Button(action: sendMessage) {
+                        Image(systemName: "paperplane")
+                            .font(.system(size: 14))
+                            .foregroundStyle(sendButtonColor)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(canSend == false)
                 }
-                .buttonStyle(.plain)
-                .disabled(canSend == false)
             }
 
             if let errorMessage {
@@ -154,92 +143,6 @@ struct ChatView: View {
                 .fill(Color.black.opacity(0.05))
         )
         .padding(16)
-    }
-
-    @ViewBuilder
-    private func chatBubble(for message: ChatMessage) -> some View {
-            if message.role == .assistant,
-               message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            EmptyView()
-        } else {
-            HStack {
-                if message.role == .assistant {
-                    VStack(alignment: .leading, spacing: 6) {
-                        bubbleText(
-                            renderedContent(for: message),
-                            messageID: message.id,
-                            alignment: .leading,
-                            background: Color.clear,
-                            maxWidth: .infinity
-                        )
-                        if let status = toolStatus, isSending, message.content.isEmpty || messages.last?.id == message.id {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text(status)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(Color.black.opacity(0.45))
-                                    .italic()
-                            }
-                            .padding(.leading, 10)
-                        }
-                        if canPin(message) {
-                            Button("Pin answer to text") {
-                                pinAnswer(message)
-                            }
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    Spacer(minLength: 20)
-                } else {
-                    Spacer(minLength: 20)
-                    userBubbleText(message.content)
-                }
-            }
-        }
-    }
-
-    private func bubbleText(
-        _ text: NSAttributedString,
-        messageID: UUID,
-        alignment: HorizontalAlignment,
-        background: Color,
-        maxWidth: CGFloat
-    ) -> some View {
-        MarkdownTextView(text: text)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(background)
-        )
-        .frame(maxWidth: maxWidth, alignment: alignment == .leading ? .leading : .trailing)
-    }
-
-    private func userBubbleText(_ text: String) -> some View {
-        ViewThatFits(in: .horizontal) {
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.black.opacity(0.85))
-                .textSelection(.enabled)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-
-            Text(text)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.black.opacity(0.85))
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.accentColor.opacity(0.12))
-        )
-        .frame(maxWidth: 240, alignment: .trailing)
     }
 
     private func sendMessage() {
@@ -276,8 +179,7 @@ struct ChatView: View {
 #if DEBUG
         print("[Chat] created assistantMessage id=\(assistantID) anchor=\(selectionAnchor != nil)")
 #endif
-        renderNow(for: userMessage.id)
-        renderNow(for: assistantID)
+        streamingMessageID = assistantID
         inputText = ""
         inputHeight = 22
         persistMessage(userMessage)
@@ -289,9 +191,8 @@ struct ChatView: View {
         isSending = true
         toolStatus = nil
 
-        Task {
+        activeTask = Task {
             do {
-                // Build the user prompt with selection context if available
                 let userPrompt: String
                 if let selectionText, selectionText.isEmpty == false {
                     userPrompt = "Selected text:\n\(selectionText)\n\nQuestion:\n\(trimmed)"
@@ -302,10 +203,14 @@ struct ChatView: View {
                 let conversation = buildConversationMessages(from: historyMessages, userPrompt: userPrompt)
                 let documentTitle = activeDocument?.title ?? "Unknown Document"
 
+                let currentSession = readerSession
                 let executor = ToolExecutor(
                     documentID: activeDocument?.id ?? UUID(),
                     apiKey: apiKey,
-                    modelContext: modelContext
+                    modelContext: modelContext,
+                    document: activeDocument,
+                    currentPageProvider: { currentSession.currentPageNumber },
+                    readerSession: currentSession
                 )
 
                 let agentLoop = AgentLoop(
@@ -316,6 +221,7 @@ struct ChatView: View {
                 )
 
                 for try await event in agentLoop.run(messages: conversation) {
+                    try Task.checkCancellation()
                     await MainActor.run {
                         switch event {
                         case .textDelta(let delta):
@@ -335,7 +241,7 @@ struct ChatView: View {
                 await MainActor.run {
                     isSending = false
                     toolStatus = nil
-                    finalizeRender(for: assistantID)
+                    streamingMessageID = nil
                     persistAssistantMessageIfNeeded(id: assistantID)
 #if DEBUG
                     if let message = messages.first(where: { $0.id == assistantID }) {
@@ -348,10 +254,19 @@ struct ChatView: View {
                 await MainActor.run {
                     isSending = false
                     toolStatus = nil
+                    streamingMessageID = nil
                     errorMessage = error.localizedDescription
                 }
             }
         }
+    }
+
+    private func cancelGeneration() {
+        activeTask?.cancel()
+        activeTask = nil
+        isSending = false
+        toolStatus = nil
+        streamingMessageID = nil
     }
 
     private func toolStatusText(for toolName: String) -> String {
@@ -359,6 +274,12 @@ struct ChatView: View {
         case "search_document": return "Searching document..."
         case "read_highlights": return "Reading highlights..."
         case "read_notes": return "Reading notes..."
+        case "get_document_info": return "Reading document info..."
+        case "get_current_page": return "Checking current page..."
+        case "get_page_text": return "Reading page text..."
+        case "navigate_to_page": return "Navigating..."
+        case "create_note": return "Writing note..."
+        case "append_to_note": return "Adding to notes..."
         default: return "Working..."
         }
     }
@@ -369,13 +290,8 @@ struct ChatView: View {
     }
 
     private var sendButtonColor: Color {
-        if canSend {
-            return Color.accentColor
-        }
-        return Color.black.opacity(0.3)
+        canSend ? Color.accentColor : Color.black.opacity(0.3)
     }
-
-    // System prompt is now built by AgentLoop.buildSystemPrompt(documentTitle:)
 
     private func canPin(_ message: ChatMessage) -> Bool {
         guard message.role == .assistant else { return false }
@@ -448,7 +364,10 @@ struct ChatView: View {
                     .lineLimit(2)
             }
 
-            MarkdownTextView(text: renderMarkdown(preview.assistantText))
+            Text(preview.assistantText)
+                .font(.system(size: 12))
+                .foregroundStyle(Color.black.opacity(0.7))
+                .lineLimit(4)
                 .padding(.leading, 8)
                 .overlay(alignment: .leading) {
                     Rectangle()
@@ -471,8 +390,6 @@ struct ChatView: View {
         }
         return mapped + [OpenAIClient.Message(role: "user", content: userPrompt)]
     }
-
-    // RAG context resolution is now handled by the agent via the search_document tool
 
     @MainActor
     private func persistMessage(_ message: ChatMessage) {
@@ -515,52 +432,7 @@ struct ChatView: View {
     private func appendDelta(_ delta: String, to assistantID: UUID) {
         guard let index = messages.firstIndex(where: { $0.id == assistantID }) else { return }
         messages[index].content += delta
-        scheduleRender(for: assistantID)
-    }
-
-    private func renderedContent(for message: ChatMessage) -> NSAttributedString {
-        if let cached = renderedText[message.id] {
-            return cached
-        }
-        return renderMarkdown(message.content)
-    }
-
-    private func renderNow(for messageID: UUID) {
-        guard let message = messages.first(where: { $0.id == messageID }) else { return }
-        renderedText[messageID] = renderMarkdown(message.content)
-    }
-
-    private func finalizeRender(for messageID: UUID) {
-        renderNow(for: messageID)
-    }
-
-    private func scheduleRender(for messageID: UUID) {
-        let now = Date()
-        let last = lastRenderAt[messageID] ?? .distantPast
-        let elapsed = now.timeIntervalSince(last)
-
-        if elapsed >= renderInterval, pendingRenders.contains(messageID) == false {
-            lastRenderAt[messageID] = now
-            renderNow(for: messageID)
-            return
-        }
-
-        guard pendingRenders.contains(messageID) == false else { return }
-        pendingRenders.insert(messageID)
-        let delay = max(renderInterval - elapsed, 0.01)
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-            pendingRenders.remove(messageID)
-            lastRenderAt[messageID] = Date()
-            renderNow(for: messageID)
-        }
-    }
-
-    private func renderMarkdown(_ text: String) -> NSAttributedString {
-        MarkdownRenderer.renderAttributed(
-            text,
-            fontSize: messageFontSize,
-            textColor: NSColor.black.withAlphaComponent(0.85)
-        )
+        // SwiftUI state change triggers ChatWebView.updateNSView → coordinator syncs delta to JS
     }
 }
 

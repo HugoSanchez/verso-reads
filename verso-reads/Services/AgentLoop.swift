@@ -33,11 +33,19 @@ struct AgentLoop {
         - search_document: When the user asks about specific content in the document and you don't already have relevant context in the conversation. Do NOT search if the question is about text already provided as context (e.g. selected text).
         - read_highlights: When the user asks about their existing highlights or annotations.
         - read_notes: When the user asks about or references their notes.
+        - get_document_info: When you need document metadata (title, author, page count).
+        - get_current_page: When you need to know what page the user is viewing.
+        - get_page_text: When you need the full text of a specific page.
+        - navigate_to_page: When the user asks to go to a specific page or you want to direct them to relevant content.
+        - create_note: When the user asks you to write or create a note from scratch. This replaces existing note content.
+        - append_to_note: When the user asks you to add something to their notes. Prefer this over create_note to avoid overwriting existing notes.
 
         ## Guidelines
         - Be concise. Synthesize search results — don't dump raw text.
         - If you don't have enough context to answer a question about the document, use search_document.
         - Reference specific pages when possible.
+        - When writing notes, use clear formatting with line breaks between sections.
+        - Prefer append_to_note over create_note unless the user explicitly asks to start fresh.
         - IMPORTANT: If a tool call fails or returns an error, tell the user honestly that you couldn't access the information and suggest they try again or share the relevant text. Do NOT make up generic answers or provide information that isn't from the actual document. Only answer based on content you have actually retrieved or been given.
         """
     }

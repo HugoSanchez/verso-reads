@@ -7,9 +7,12 @@
     "@tiptap/starter-kit": "2.27.2",
     "@tiptap/extension-placeholder": "2.27.2",
     "@tiptap/extension-link": "2.27.2",
-    "esbuild": "0.20.2"
+    "esbuild": "0.20.2",
+    "marked": "^15.0.0"
   },
   "scripts": {
-    "build:notes": "node scripts/build-notes-editor.mjs"
+    "build:notes": "node scripts/build-notes-editor.mjs",
+    "build:chat": "node scripts/build-chat-renderer.mjs",
+    "build": "npm run build:notes && npm run build:chat"
   }
 }

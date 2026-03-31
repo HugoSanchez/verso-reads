@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import PDFKit
 import SwiftData
 import os
 
@@ -14,13 +15,19 @@ final class ToolExecutor {
     let documentID: UUID
     let apiKey: String
     let modelContext: ModelContext
+    let document: LibraryDocument?
+    let currentPageProvider: () -> Int?
+    let readerSession: ReaderSession?
 
     private let maxResultLength = 4000
 
-    init(documentID: UUID, apiKey: String, modelContext: ModelContext) {
+    init(documentID: UUID, apiKey: String, modelContext: ModelContext, document: LibraryDocument? = nil, currentPageProvider: @escaping () -> Int? = { nil }, readerSession: ReaderSession? = nil) {
         self.documentID = documentID
         self.apiKey = apiKey
         self.modelContext = modelContext
+        self.document = document
+        self.currentPageProvider = currentPageProvider
+        self.readerSession = readerSession
     }
 
     func execute(name: String, arguments: String) async -> String {
@@ -35,6 +42,18 @@ final class ToolExecutor {
                 result = try executeReadHighlights()
             case "read_notes":
                 result = try executeReadNotes()
+            case "get_document_info":
+                result = try executeGetDocumentInfo()
+            case "get_current_page":
+                result = executeGetCurrentPage()
+            case "get_page_text":
+                result = try executeGetPageText(arguments: arguments)
+            case "navigate_to_page":
+                result = executeNavigateToPage(arguments: arguments)
+            case "create_note":
+                result = try executeCreateNote(arguments: arguments)
+            case "append_to_note":
+                result = try executeAppendToNote(arguments: arguments)
             default:
                 result = "{\"error\": \"Unknown tool: \(name)\"}"
             }
@@ -113,6 +132,119 @@ final class ToolExecutor {
         return extractPlainText(fromTipTapJSON: content)
     }
 
+    private func executeGetDocumentInfo() throws -> String {
+        guard let document else {
+            return "{\"error\": \"No document is currently open.\"}"
+        }
+
+        var info: [String: Any] = [
+            "title": document.title,
+            "filename": document.originalFilename,
+            "fileType": document.contentTypeIdentifier
+        ]
+
+        if let fileURL = try? LibraryStore.fileURL(for: document),
+           let pdf = PDFDocument(url: fileURL) {
+            info["pageCount"] = pdf.pageCount
+            if let attrs = pdf.documentAttributes {
+                if let author = attrs[PDFDocumentAttribute.authorAttribute] as? String {
+                    info["author"] = author
+                }
+                if let subject = attrs[PDFDocumentAttribute.subjectAttribute] as? String {
+                    info["subject"] = subject
+                }
+            }
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: info, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func executeGetCurrentPage() -> String {
+        if let page = currentPageProvider() {
+            return "{\"currentPage\": \(page)}"
+        }
+        return "{\"error\": \"Could not determine current page.\"}"
+    }
+
+    private func executeGetPageText(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let pageNum = args["page"] as? Int else {
+            return "{\"error\": \"Missing required parameter: page\"}"
+        }
+
+        guard let document else {
+            return "{\"error\": \"No document is currently open.\"}"
+        }
+
+        guard let fileURL = try? LibraryStore.fileURL(for: document),
+              let pdf = PDFDocument(url: fileURL) else {
+            return "{\"error\": \"Could not open PDF file.\"}"
+        }
+
+        let pageIndex = pageNum - 1
+        guard pageIndex >= 0, pageIndex < pdf.pageCount,
+              let page = pdf.page(at: pageIndex) else {
+            return "{\"error\": \"Page \(pageNum) is out of range. Document has \(pdf.pageCount) pages.\"}"
+        }
+
+        guard let text = page.string, text.isEmpty == false else {
+            return "Page \(pageNum) contains no extractable text."
+        }
+
+        return text
+    }
+
+    private func executeNavigateToPage(arguments: String) -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let pageNum = args["page"] as? Int else {
+            return "{\"error\": \"Missing required parameter: page\"}"
+        }
+
+        guard let readerSession else {
+            return "{\"error\": \"Navigation is not available.\"}"
+        }
+
+        readerSession.pendingPageNavigation = pageNum
+        return "{\"success\": true, \"navigatedTo\": \(pageNum)}"
+    }
+
+    private func executeCreateNote(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let text = args["text"] as? String else {
+            return "{\"error\": \"Missing required parameter: text\"}"
+        }
+
+        let descriptor = FetchDescriptor<DocumentNote>()
+        let allNotes = try modelContext.fetch(descriptor)
+
+        if allNotes.contains(where: { $0.documentID == documentID }) {
+            return "{\"error\": \"A note already exists for this document. Use append_to_note to add content to it.\"}"
+        }
+
+        guard let readerSession else {
+            return "{\"error\": \"Notes are not available.\"}"
+        }
+
+        // Use the same TipTap JS path — appendText handles empty notes too
+        readerSession.pendingNoteAppend = text
+        return "{\"success\": true, \"action\": \"created\"}"
+    }
+
+    private func executeAppendToNote(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let text = args["text"] as? String else {
+            return "{\"error\": \"Missing required parameter: text\"}"
+        }
+
+        guard let readerSession else {
+            return "{\"error\": \"Notes are not available.\"}"
+        }
+
+        readerSession.pendingNoteAppend = text
+        return "{\"success\": true, \"action\": \"appended\"}"
+    }
+
     // MARK: - Helpers
 
     private func extractPlainText(fromTipTapJSON json: String) -> String {
@@ -146,5 +278,48 @@ final class ToolExecutor {
         }
 
         return result
+    }
+
+    private func buildTipTapDocument(from text: String) -> String {
+        let paragraphs = text.components(separatedBy: "\n").filter { $0.isEmpty == false }
+        let nodes: [[String: Any]] = paragraphs.map { line in
+            [
+                "type": "paragraph",
+                "content": [["type": "text", "text": line]]
+            ]
+        }
+        let doc: [String: Any] = ["type": "doc", "content": nodes.isEmpty ? [["type": "paragraph"]] : nodes]
+        guard let data = try? JSONSerialization.data(withJSONObject: doc, options: []),
+              let json = String(data: data, encoding: .utf8) else {
+            return "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}"
+        }
+        return json
+    }
+
+    private func appendToTipTapDocument(_ existingJSON: String, text: String) -> String {
+        guard let data = existingJSON.data(using: .utf8),
+              var doc = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var content = doc["content"] as? [[String: Any]] else {
+            return buildTipTapDocument(from: text)
+        }
+
+        // Add an empty paragraph as separator
+        content.append(["type": "paragraph"])
+
+        // Add new paragraphs
+        let paragraphs = text.components(separatedBy: "\n").filter { $0.isEmpty == false }
+        for line in paragraphs {
+            content.append([
+                "type": "paragraph",
+                "content": [["type": "text", "text": line]]
+            ])
+        }
+
+        doc["content"] = content
+        guard let resultData = try? JSONSerialization.data(withJSONObject: doc, options: []),
+              let json = String(data: resultData, encoding: .utf8) else {
+            return existingJSON
+        }
+        return json
     }
 }

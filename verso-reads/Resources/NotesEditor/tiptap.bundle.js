@@ -18420,18 +18420,25 @@ img.ProseMirror-separator {
   };
   window.VersoNotesInit = initEditor;
   window.VersoNotesSetContent = (json) => {
+    var _a, _b;
     if (!editorInstance) {
+      postMessage({ type: "debug", message: "VersoNotesSetContent: no editor instance" });
       return;
     }
     isApplyingContent = true;
     try {
       if (!json || json === "") {
+        postMessage({ type: "debug", message: "VersoNotesSetContent: empty json, clearing" });
         editorInstance.commands.setContent("", { emitUpdate: false });
       } else {
+        postMessage({ type: "debug", message: `VersoNotesSetContent: parsing json (length=${json.length})` });
         const content = JSON.parse(json);
+        postMessage({ type: "debug", message: `VersoNotesSetContent: parsed OK, setting content (nodes=${(_b = (_a = content.content) == null ? void 0 : _a.length) != null ? _b : 0})` });
         editorInstance.commands.setContent(content, { emitUpdate: false });
+        postMessage({ type: "debug", message: "VersoNotesSetContent: setContent done" });
       }
     } catch (error) {
+      postMessage({ type: "debug", message: `VersoNotesSetContent ERROR: ${error}` });
       editorInstance.commands.setContent("", { emitUpdate: false });
     }
     if (updateTimer) {
@@ -18470,6 +18477,27 @@ img.ProseMirror-separator {
     nodes.push({ type: "paragraph" });
     const endPos = state.doc.content.size;
     editorInstance.chain().insertContentAt(endPos, nodes).focus("end").run();
+    scheduleContentPost();
+  };
+  window.VersoNotesAppendText = (text) => {
+    if (!editorInstance) {
+      return;
+    }
+    const lines = text.split("\n").filter((l) => l.length > 0);
+    const nodes = [];
+    const { state } = editorInstance;
+    const docSize = state.doc.content.size;
+    if (docSize > 2) {
+      nodes.push({ type: "paragraph" });
+    }
+    for (const line of lines) {
+      nodes.push({
+        type: "paragraph",
+        content: [{ type: "text", text: line }]
+      });
+    }
+    const endPos = state.doc.content.size;
+    editorInstance.chain().insertContentAt(endPos, nodes).run();
     scheduleContentPost();
   };
 })();

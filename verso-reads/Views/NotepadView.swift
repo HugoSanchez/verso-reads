@@ -21,10 +21,12 @@ struct NotepadView: View {
             content: content,
             documentID: readerSession.activeDocumentID,
             pendingQuoteInsertion: pendingQuoteInsertion,
+            pendingTextAppend: readerSession.pendingNoteAppend,
             onContentChange: handleContentChange,
             onQuoteClick: handleQuoteClick,
             onQuoteRemove: handleQuoteRemove,
-            onQuoteInserted: { pendingQuoteInsertion = nil }
+            onQuoteInserted: { pendingQuoteInsertion = nil },
+            onTextAppended: { readerSession.pendingNoteAppend = nil }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -53,6 +55,10 @@ struct NotepadView: View {
         }
         .onChange(of: readerSession.pendingNoteQuote) { _, newValue in
             handlePendingNoteQuote(newValue)
+        }
+        .onChange(of: readerSession.noteContentVersion) { oldVal, newVal in
+            print("[NotepadView] noteContentVersion changed \(oldVal) → \(newVal), reloading")
+            loadNote()
         }
     }
 
