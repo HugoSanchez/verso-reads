@@ -280,46 +280,4 @@ final class ToolExecutor {
         return result
     }
 
-    private func buildTipTapDocument(from text: String) -> String {
-        let paragraphs = text.components(separatedBy: "\n").filter { $0.isEmpty == false }
-        let nodes: [[String: Any]] = paragraphs.map { line in
-            [
-                "type": "paragraph",
-                "content": [["type": "text", "text": line]]
-            ]
-        }
-        let doc: [String: Any] = ["type": "doc", "content": nodes.isEmpty ? [["type": "paragraph"]] : nodes]
-        guard let data = try? JSONSerialization.data(withJSONObject: doc, options: []),
-              let json = String(data: data, encoding: .utf8) else {
-            return "{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\"}]}"
-        }
-        return json
-    }
-
-    private func appendToTipTapDocument(_ existingJSON: String, text: String) -> String {
-        guard let data = existingJSON.data(using: .utf8),
-              var doc = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var content = doc["content"] as? [[String: Any]] else {
-            return buildTipTapDocument(from: text)
-        }
-
-        // Add an empty paragraph as separator
-        content.append(["type": "paragraph"])
-
-        // Add new paragraphs
-        let paragraphs = text.components(separatedBy: "\n").filter { $0.isEmpty == false }
-        for line in paragraphs {
-            content.append([
-                "type": "paragraph",
-                "content": [["type": "text", "text": line]]
-            ])
-        }
-
-        doc["content"] = content
-        guard let resultData = try? JSONSerialization.data(withJSONObject: doc, options: []),
-              let json = String(data: resultData, encoding: .utf8) else {
-            return existingJSON
-        }
-        return json
-    }
 }

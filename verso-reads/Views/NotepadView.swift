@@ -56,10 +56,6 @@ struct NotepadView: View {
         .onChange(of: readerSession.pendingNoteQuote) { _, newValue in
             handlePendingNoteQuote(newValue)
         }
-        .onChange(of: readerSession.noteContentVersion) { oldVal, newVal in
-            print("[NotepadView] noteContentVersion changed \(oldVal) → \(newVal), reloading")
-            loadNote()
-        }
     }
 
     private func loadNote() {

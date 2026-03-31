@@ -21,7 +21,6 @@ final class ReaderSession: ObservableObject {
     @Published var currentPageNumber: Int?
     @Published var pendingPageNavigation: Int?
     @Published var pendingNoteAppend: String?
-    @Published var noteContentVersion: Int = 0
 
     let noteQuoteNavigation = PassthroughSubject<UUID, Never>()
 }

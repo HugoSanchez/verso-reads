@@ -254,14 +254,6 @@ window.VersoNotesAppendText = (text: string) => {
   const lines = text.split("\n").filter((l) => l.length > 0);
   const nodes: JSONContent[] = [];
 
-  const { state } = editorInstance;
-  const docSize = state.doc.content.size;
-
-  // Add a spacer paragraph before the new content if there's existing content
-  if (docSize > 2) {
-    nodes.push({ type: "paragraph" });
-  }
-
   for (const line of lines) {
     nodes.push({
       type: "paragraph",
@@ -269,7 +261,7 @@ window.VersoNotesAppendText = (text: string) => {
     });
   }
 
-  const endPos = state.doc.content.size;
+  const endPos = editorInstance.state.doc.content.size;
   editorInstance
     .chain()
     .insertContentAt(endPos, nodes)

@@ -18485,18 +18485,13 @@ img.ProseMirror-separator {
     }
     const lines = text.split("\n").filter((l) => l.length > 0);
     const nodes = [];
-    const { state } = editorInstance;
-    const docSize = state.doc.content.size;
-    if (docSize > 2) {
-      nodes.push({ type: "paragraph" });
-    }
     for (const line of lines) {
       nodes.push({
         type: "paragraph",
         content: [{ type: "text", text: line }]
       });
     }
-    const endPos = state.doc.content.size;
+    const endPos = editorInstance.state.doc.content.size;
     editorInstance.chain().insertContentAt(endPos, nodes).run();
     scheduleContentPost();
   };
