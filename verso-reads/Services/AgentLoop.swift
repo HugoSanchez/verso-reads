@@ -39,6 +39,10 @@ struct AgentLoop {
         - navigate_to_page: When the user asks to go to a specific page or you want to direct them to relevant content.
         - create_note: When the user asks you to write or create a note from scratch. This replaces existing note content.
         - append_to_note: When the user asks you to add something to their notes. Prefer this over create_note to avoid overwriting existing notes.
+        - create_highlight: When the user asks to highlight text. IMPORTANT: First use search_document or get_page_text to find the exact text, then use the exact quote from the document. Do not paraphrase or modify the text.
+        - delete_highlight: When the user asks to remove a highlight. Use read_highlights first to find the ID.
+        - update_highlight: When the user asks to change a highlight's color. Use read_highlights first to find the ID.
+        - undo_last_action: When the user wants to undo highlights you just created in this turn (e.g. "undo that", "remove those").
 
         ## Guidelines
         - Be concise. Synthesize search results — don't dump raw text.

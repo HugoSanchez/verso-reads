@@ -10,6 +10,7 @@ struct ChatWebView: NSViewRepresentable {
     let messages: [ChatMessage]
     let streamingMessageID: UUID?
     let toolStatus: String?
+    let isSending: Bool
     let onPinClick: (UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -43,11 +44,13 @@ struct ChatWebView: NSViewRepresentable {
             coordinator.pendingMessages = messages
             coordinator.pendingStreamingID = streamingMessageID
             coordinator.pendingToolStatus = toolStatus
+            coordinator.pendingThinking = isSending
             return
         }
 
         coordinator.syncMessages(messages, streamingID: streamingMessageID, in: webView)
         coordinator.syncToolStatus(toolStatus, in: webView)
+        coordinator.syncThinking(isSending, in: webView)
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -60,10 +63,12 @@ struct ChatWebView: NSViewRepresentable {
         var pendingMessages: [ChatMessage]?
         var pendingStreamingID: UUID?
         var pendingToolStatus: String?
+        var pendingThinking: Bool?
 
         // Tracking what's been sent to JS
         private var renderedMessageCount = 0
         private var lastDeltaLength: [UUID: Int] = [:]
+        private var lastThinkingState: Bool?
 
         init(onPinClick: @escaping (UUID) -> Void) {
             self.onPinClick = onPinClick
@@ -119,6 +124,13 @@ struct ChatWebView: NSViewRepresentable {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
+        func syncThinking(_ isSending: Bool, in webView: WKWebView) {
+            guard isSending != lastThinkingState else { return }
+            lastThinkingState = isSending
+            let js = "window.VersoChatSetThinking && window.VersoChatSetThinking(\(isSending));"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
         // MARK: - JS Bridge Calls
 
         private func addMessage(_ id: UUID, role: String, content: String, in webView: WKWebView) {
@@ -164,9 +176,13 @@ struct ChatWebView: NSViewRepresentable {
                 if let pending = pendingMessages, let webView = message.webView {
                     syncMessages(pending, streamingID: pendingStreamingID, in: webView)
                     syncToolStatus(pendingToolStatus, in: webView)
+                    if let thinking = pendingThinking {
+                        syncThinking(thinking, in: webView)
+                    }
                     pendingMessages = nil
                     pendingStreamingID = nil
                     pendingToolStatus = nil
+                    pendingThinking = nil
                 }
 
             case "pin-click":

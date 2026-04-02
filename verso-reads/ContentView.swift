@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var mainPanel: MainPanel = .reader
     @State private var isSidebarVisible: Bool = true
     @StateObject private var readerSession = ReaderSession()
+    @StateObject private var toastManager = ToastManager()
 
     private let sidebarWidth: CGFloat = 220
     private var sidebarInset: CGFloat { isSidebarVisible ? sidebarWidth : 0 }
@@ -63,9 +64,13 @@ struct ContentView: View {
             }
             .padding(.leading, sidebarInset)
         }
+        .overlay {
+            ToastOverlayView()
+        }
         .ignoresSafeArea()
         .background(.ultraThinMaterial)
         .environmentObject(readerSession)
+        .environmentObject(toastManager)
         .simultaneousGesture(
             TapGesture().onEnded {
                 if selectionDismiss.isActive {

@@ -18,16 +18,18 @@ final class ToolExecutor {
     let document: LibraryDocument?
     let currentPageProvider: () -> Int?
     let readerSession: ReaderSession?
+    let turnID: UUID
 
     private let maxResultLength = 4000
 
-    init(documentID: UUID, apiKey: String, modelContext: ModelContext, document: LibraryDocument? = nil, currentPageProvider: @escaping () -> Int? = { nil }, readerSession: ReaderSession? = nil) {
+    init(documentID: UUID, apiKey: String, modelContext: ModelContext, document: LibraryDocument? = nil, currentPageProvider: @escaping () -> Int? = { nil }, readerSession: ReaderSession? = nil, turnID: UUID = UUID()) {
         self.documentID = documentID
         self.apiKey = apiKey
         self.modelContext = modelContext
         self.document = document
         self.currentPageProvider = currentPageProvider
         self.readerSession = readerSession
+        self.turnID = turnID
     }
 
     func execute(name: String, arguments: String) async -> String {
@@ -54,6 +56,14 @@ final class ToolExecutor {
                 result = try executeCreateNote(arguments: arguments)
             case "append_to_note":
                 result = try executeAppendToNote(arguments: arguments)
+            case "create_highlight":
+                result = try executeCreateHighlight(arguments: arguments)
+            case "delete_highlight":
+                result = try executeDeleteHighlight(arguments: arguments)
+            case "update_highlight":
+                result = try executeUpdateHighlight(arguments: arguments)
+            case "undo_last_action":
+                result = try executeUndoLastAction()
             default:
                 result = "{\"error\": \"Unknown tool: \(name)\"}"
             }
@@ -243,6 +253,113 @@ final class ToolExecutor {
 
         readerSession.pendingNoteAppend = text
         return "{\"success\": true, \"action\": \"appended\"}"
+    }
+
+    private func executeCreateHighlight(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let quote = args["quote"] as? String,
+              let pageNum = args["page"] as? Int else {
+            return "{\"error\": \"Missing required parameters: quote and page\"}"
+        }
+
+        guard let document else {
+            return "{\"error\": \"No document is currently open.\"}"
+        }
+
+        guard let fileURL = try? LibraryStore.fileURL(for: document),
+              let pdf = PDFDocument(url: fileURL) else {
+            return "{\"error\": \"Could not open PDF file.\"}"
+        }
+
+        let pageIndex = pageNum - 1
+        guard let matchResult = PDFTextMatcher.match(quote: quote, on: pageIndex, in: pdf) else {
+            return "{\"error\": \"Could not find the text \\\"\(String(quote.prefix(80)))\\\" in the document. Try using get_page_text to read the exact text from the page first, then use that exact text as the quote.\"}"
+        }
+
+        let colorString = (args["color"] as? String) ?? "yellow"
+        let anchorData = try JSONEncoder().encode(matchResult.anchor)
+        let actualPage = matchResult.pageIndex + 1
+
+        let annotation = Annotation(
+            documentID: documentID,
+            kind: .highlight,
+            anchorData: anchorData,
+            quote: matchResult.matchedText,
+            colorRawValue: colorString,
+            agentTurnID: turnID
+        )
+
+        modelContext.insert(annotation)
+        try modelContext.save()
+
+        log.debug("Created highlight \(annotation.id) on page \(actualPage) color=\(colorString)")
+        return "{\"success\": true, \"id\": \"\(annotation.id.uuidString)\", \"page\": \(actualPage), \"color\": \"\(colorString)\"}"
+    }
+
+    private func executeDeleteHighlight(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let idString = args["id"] as? String,
+              let highlightID = UUID(uuidString: idString) else {
+            return "{\"error\": \"Missing or invalid required parameter: id (must be a valid UUID)\"}"
+        }
+
+        let descriptor = FetchDescriptor<Annotation>()
+        let allAnnotations = try modelContext.fetch(descriptor)
+        guard let annotation = allAnnotations.first(where: {
+            $0.id == highlightID && $0.documentID == documentID && $0.kind == .highlight
+        }) else {
+            return "{\"error\": \"Highlight with ID \(idString) not found in this document.\"}"
+        }
+
+        modelContext.delete(annotation)
+        try modelContext.save()
+
+        log.debug("Deleted highlight \(idString)")
+        return "{\"success\": true, \"deleted\": \"\(idString)\"}"
+    }
+
+    private func executeUpdateHighlight(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let idString = args["id"] as? String,
+              let highlightID = UUID(uuidString: idString),
+              let color = args["color"] as? String else {
+            return "{\"error\": \"Missing required parameters: id and color\"}"
+        }
+
+        let descriptor = FetchDescriptor<Annotation>()
+        let allAnnotations = try modelContext.fetch(descriptor)
+        guard let annotation = allAnnotations.first(where: {
+            $0.id == highlightID && $0.documentID == documentID && $0.kind == .highlight
+        }) else {
+            return "{\"error\": \"Highlight with ID \(idString) not found in this document.\"}"
+        }
+
+        annotation.colorRawValue = color
+        annotation.updatedAt = Date()
+        try modelContext.save()
+
+        log.debug("Updated highlight \(idString) color=\(color)")
+        return "{\"success\": true, \"id\": \"\(idString)\", \"color\": \"\(color)\"}"
+    }
+
+    private func executeUndoLastAction() throws -> String {
+        let descriptor = FetchDescriptor<Annotation>()
+        let allAnnotations = try modelContext.fetch(descriptor)
+        let turnAnnotations = allAnnotations.filter {
+            $0.documentID == documentID && $0.agentTurnID == turnID
+        }
+
+        guard turnAnnotations.isEmpty == false else {
+            return "{\"error\": \"No actions to undo in this turn.\"}"
+        }
+
+        for annotation in turnAnnotations {
+            modelContext.delete(annotation)
+        }
+        try modelContext.save()
+
+        log.debug("Undid \(turnAnnotations.count) action(s) from turn \(self.turnID)")
+        return "{\"success\": true, \"undone\": \(turnAnnotations.count)}"
     }
 
     // MARK: - Helpers

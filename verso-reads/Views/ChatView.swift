@@ -10,6 +10,7 @@ import SwiftData
 struct ChatView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var readerSession: ReaderSession
+    @EnvironmentObject private var toastManager: ToastManager
     @Binding var context: ChatContext?
     @Binding var messages: [ChatMessage]
     @ObservedObject var settings: OpenAISettingsStore
@@ -19,7 +20,6 @@ struct ChatView: View {
 
     @State private var inputText: String = ""
     @State private var isSending = false
-    @State private var errorMessage: String?
     @State private var streamingMessageID: UUID?
     @State private var inputHeight: CGFloat = 22
     @State private var isInputFocused = false
@@ -51,6 +51,7 @@ struct ChatView: View {
                 messages: messages,
                 streamingMessageID: streamingMessageID,
                 toolStatus: toolStatus,
+                isSending: isSending,
                 onPinClick: { messageID in
                     if let message = messages.first(where: { $0.id == messageID }) {
                         pinAnswer(message)
@@ -126,11 +127,7 @@ struct ChatView: View {
                 }
             }
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.red.opacity(0.7))
-            } else if settings.hasAPIKey == false {
+            if settings.hasAPIKey == false {
                 Text("Add your OpenAI API key in Settings to enable chat.")
                     .font(.system(size: 11))
                     .foregroundStyle(Color.black.opacity(0.45))
@@ -149,8 +146,6 @@ struct ChatView: View {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty == false else { return }
         guard settings.hasAPIKey else { return }
-
-        errorMessage = nil
 
         let historyMessages = messages
         let selectionAnchor = context?.anchorData
@@ -186,7 +181,7 @@ struct ChatView: View {
 
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let model = settings.model.trimmingCharacters(in: .whitespacesAndNewlines)
-        let client = OpenAIClient(apiKey: apiKey, model: model.isEmpty ? "gpt-5.2" : model)
+        let client = OpenAIClient(apiKey: apiKey, model: model.isEmpty ? "gpt-5.2-mini" : model)
 
         isSending = true
         toolStatus = nil
@@ -204,13 +199,15 @@ struct ChatView: View {
                 let documentTitle = activeDocument?.title ?? "Unknown Document"
 
                 let currentSession = readerSession
+                let turnID = UUID()
                 let executor = ToolExecutor(
                     documentID: activeDocument?.id ?? UUID(),
                     apiKey: apiKey,
                     modelContext: modelContext,
                     document: activeDocument,
                     currentPageProvider: { currentSession.currentPageNumber },
-                    readerSession: currentSession
+                    readerSession: currentSession,
+                    turnID: turnID
                 )
 
                 let agentLoop = AgentLoop(
@@ -233,7 +230,7 @@ struct ChatView: View {
                         case .completed:
                             break
                         case .error(let error):
-                            errorMessage = error.localizedDescription
+                            toastManager.show(error.localizedDescription, style: .error)
                         }
                     }
                 }
@@ -255,7 +252,9 @@ struct ChatView: View {
                     isSending = false
                     toolStatus = nil
                     streamingMessageID = nil
-                    errorMessage = error.localizedDescription
+                    if !(error is CancellationError) {
+                        toastManager.show(error.localizedDescription, style: .error)
+                    }
                 }
             }
         }
@@ -280,6 +279,10 @@ struct ChatView: View {
         case "navigate_to_page": return "Navigating..."
         case "create_note": return "Writing note..."
         case "append_to_note": return "Adding to notes..."
+        case "create_highlight": return "Highlighting..."
+        case "delete_highlight": return "Removing highlight..."
+        case "update_highlight": return "Updating highlight..."
+        case "undo_last_action": return "Undoing..."
         default: return "Working..."
         }
     }
@@ -589,6 +592,7 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         pinnedPreview: .constant(nil),
         activeDocument: .constant(nil)
     )
+        .environmentObject(ToastManager())
         .frame(width: 340, height: 300)
         .background(Color(nsColor: .windowBackgroundColor))
 }

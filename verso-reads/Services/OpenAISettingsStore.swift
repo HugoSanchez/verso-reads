@@ -9,7 +9,7 @@ import Combine
 @MainActor
 final class OpenAISettingsStore: ObservableObject {
     @Published var apiKey: String = ""
-    @Published var model: String = "gpt-5.2"
+    @Published var model: String = "gpt-5.2-mini"
     @Published var statusMessage: String?
 
     private let keychainService: String
@@ -44,7 +44,7 @@ final class OpenAISettingsStore: ObservableObject {
            storedModel.isEmpty == false {
             model = storedModel
         } else {
-            model = "gpt-5.2"
+            model = "gpt-5.2-mini"
         }
     }
 
@@ -61,8 +61,8 @@ final class OpenAISettingsStore: ObservableObject {
             } else {
                 try KeychainStore.save(trimmedKey, service: keychainService, account: keychainAccount)
             }
-            UserDefaults.standard.set(trimmedModel.isEmpty ? "gpt-5.2" : trimmedModel, forKey: modelDefaultsKey)
-            model = trimmedModel.isEmpty ? "gpt-5.2" : trimmedModel
+            UserDefaults.standard.set(trimmedModel.isEmpty ? "gpt-5.2-mini" : trimmedModel, forKey: modelDefaultsKey)
+            model = trimmedModel.isEmpty ? "gpt-5.2-mini" : trimmedModel
             statusMessage = "Saved."
             scheduleStatusClearIfNeeded()
         } catch {

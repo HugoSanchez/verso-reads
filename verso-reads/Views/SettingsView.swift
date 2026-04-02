@@ -113,7 +113,7 @@ struct SettingsView: View {
     }
 
     private var modelField: some View {
-        TextField("gpt-5.2", text: $settings.model)
+        TextField("gpt-5.2-mini", text: $settings.model)
             .textFieldStyle(.plain)
             .font(.system(size: 13))
             .padding(.horizontal, 10)
