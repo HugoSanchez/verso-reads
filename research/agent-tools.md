@@ -80,15 +80,15 @@ Scroll the document view to a specific page.
 ---
 
 ### `create_note`
-Create or replace the note for the current document. Overwrites any existing content.
+Create a new note for the current document. Fails if a note already exists (agent should use `append_to_note` instead).
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `text` | string | yes | Text content for the note |
 
-**Returns:** `{ "success": true, "action": "created" }`
+**Returns:** `{ "success": true, "action": "created" }` or error if note exists.
 
-**Implementation:** Converts text to TipTap JSON (paragraphs split by newlines) and saves to `DocumentNote` via SwiftData.
+**Implementation:** Sets `ReaderSession.pendingNoteAppend`, which NotepadView observes and forwards to TipTap's `VersoNotesAppendText` JS function using `insertContentAt`.
 
 ---
 
@@ -101,7 +101,7 @@ Append text to the end of the user's existing notes. Creates the note if it does
 
 **Returns:** `{ "success": true, "action": "appended" }`
 
-**Implementation:** Parses existing TipTap JSON, adds a separator paragraph, then appends new paragraphs. Falls back to creating a new note if none exists.
+**Implementation:** Sets `ReaderSession.pendingNoteAppend`, which NotepadView observes and forwards to TipTap's `VersoNotesAppendText` JS function using `insertContentAt`. TipTap handles persistence through its normal `onUpdate` → `scheduleContentPost` flow.
 
 ---
 
