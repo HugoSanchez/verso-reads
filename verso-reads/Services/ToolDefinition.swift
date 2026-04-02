@@ -31,7 +31,11 @@ enum AgentTools {
         getPageText,
         navigateToPage,
         createNote,
-        appendToNote
+        appendToNote,
+        createHighlight,
+        deleteHighlight,
+        updateHighlight,
+        undoLastAction
     ]
 
     static let searchDocument = ToolDefinition(
@@ -154,6 +158,79 @@ enum AgentTools {
                 ]
             ],
             "required": ["text"],
+            "additionalProperties": false
+        ]
+    )
+
+    static let createHighlight = ToolDefinition(
+        name: "create_highlight",
+        description: "Highlight a passage in the document. The quote must be an exact or near-exact substring of the text on the specified page. When highlighting a topic, first use search_document to find relevant passages, then highlight each one.",
+        parameters: [
+            "type": "object",
+            "properties": [
+                "quote": [
+                    "type": "string",
+                    "description": "The exact text to highlight. Must match the document text closely."
+                ],
+                "page": [
+                    "type": "number",
+                    "description": "The page number where the text appears (1-based)"
+                ],
+                "color": [
+                    "type": "string",
+                    "enum": ["yellow", "orange", "green", "blue"],
+                    "description": "Highlight color"
+                ]
+            ],
+            "required": ["quote", "page", "color"],
+            "additionalProperties": false
+        ]
+    )
+
+    static let deleteHighlight = ToolDefinition(
+        name: "delete_highlight",
+        description: "Remove an existing highlight by its ID. Use read_highlights first to get the list of highlight IDs.",
+        parameters: [
+            "type": "object",
+            "properties": [
+                "id": [
+                    "type": "string",
+                    "description": "The UUID of the highlight to delete"
+                ]
+            ],
+            "required": ["id"],
+            "additionalProperties": false
+        ]
+    )
+
+    static let updateHighlight = ToolDefinition(
+        name: "update_highlight",
+        description: "Change the color of an existing highlight. Use read_highlights first to get the highlight ID.",
+        parameters: [
+            "type": "object",
+            "properties": [
+                "id": [
+                    "type": "string",
+                    "description": "The UUID of the highlight to update"
+                ],
+                "color": [
+                    "type": "string",
+                    "enum": ["yellow", "orange", "green", "blue"],
+                    "description": "The new highlight color"
+                ]
+            ],
+            "required": ["id", "color"],
+            "additionalProperties": false
+        ]
+    )
+
+    static let undoLastAction = ToolDefinition(
+        name: "undo_last_action",
+        description: "Undo all highlights created during this conversation turn. Use this when the user says something like 'undo that', 'remove those highlights', or 'nevermind'.",
+        parameters: [
+            "type": "object",
+            "properties": [String: Any](),
+            "required": [String](),
             "additionalProperties": false
         ]
     )

@@ -7,6 +7,7 @@ declare global {
     VersoChatAppendDelta?: (id: string, delta: string) => void;
     VersoChatFinalizeMessage?: (id: string, canPin: boolean) => void;
     VersoChatSetToolStatus?: (status: string | null) => void;
+    VersoChatSetThinking?: (thinking: boolean) => void;
     VersoChatClear?: () => void;
     webkit?: {
       messageHandlers?: {
@@ -98,6 +99,58 @@ function createMessageElement(
   return wrapper;
 }
 
+// -- Unified activity indicator (dots or tool status, same element, same place) --
+
+function getOrCreateIndicator(): HTMLElement {
+  let el = document.getElementById("activity-indicator");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "activity-indicator";
+    el.className = "message message-assistant";
+    el.style.display = "none";
+
+    const inner = document.createElement("div");
+    inner.className = "activity-inner";
+    el.appendChild(inner);
+
+    getContainer().appendChild(el);
+  }
+  return el;
+}
+
+function showIndicatorDots() {
+  const el = getOrCreateIndicator();
+  const inner = el.querySelector(".activity-inner")!;
+  inner.innerHTML = '<div class="thinking-dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+  el.style.display = "";
+  // Keep it at the end of the container
+  const container = getContainer();
+  if (el.parentElement !== container || el !== container.lastElementChild) {
+    container.appendChild(el);
+  }
+  scrollToBottom();
+}
+
+function showIndicatorText(text: string) {
+  const el = getOrCreateIndicator();
+  const inner = el.querySelector(".activity-inner")!;
+  inner.innerHTML = `<span class="tool-status-text">${text}</span>`;
+  el.style.display = "";
+  const container = getContainer();
+  if (el.parentElement !== container || el !== container.lastElementChild) {
+    container.appendChild(el);
+  }
+  scrollToBottom();
+}
+
+function hideIndicator() {
+  const el = document.getElementById("activity-indicator");
+  if (el) el.style.display = "none";
+}
+
+let isThinking = false;
+let hasReceivedContent = false;
+
 // -- Public API --
 
 window.VersoChatInit = () => {
@@ -124,6 +177,12 @@ window.VersoChatAppendDelta = (id: string, delta: string) => {
   const current = buffers.get(id) ?? "";
   const updated = current + delta;
   buffers.set(id, updated);
+
+  // First delta arrived — hide indicator, stop showing dots/tool for this turn
+  if (!current) {
+    hasReceivedContent = true;
+    hideIndicator();
+  }
 
   let wrapper = getContainer().querySelector(
     `[data-id="${id}"]`
@@ -168,21 +227,32 @@ window.VersoChatFinalizeMessage = (id: string, canPin: boolean) => {
   // Clean up from dirty set
   dirtyIds.delete(id);
 
+  // Hide activity indicator when done
+  hideIndicator();
+
   scrollToBottom();
 };
 
 window.VersoChatSetToolStatus = (status: string | null) => {
-  const el = document.getElementById("tool-status")!;
-  const textEl = document.getElementById("tool-status-text")!;
-
+  if (hasReceivedContent) return;
   if (status) {
-    textEl.textContent = status;
-    el.classList.remove("hidden");
+    showIndicatorText(status);
+  } else if (isThinking) {
+    showIndicatorDots();
   } else {
-    el.classList.add("hidden");
+    hideIndicator();
   }
+};
 
-  scrollToBottom();
+window.VersoChatSetThinking = (thinking: boolean) => {
+  isThinking = thinking;
+  if (thinking) {
+    hasReceivedContent = false;
+    showIndicatorDots();
+  } else {
+    hasReceivedContent = false;
+    hideIndicator();
+  }
 };
 
 window.VersoChatClear = () => {

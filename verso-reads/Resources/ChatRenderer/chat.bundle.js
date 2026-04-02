@@ -2224,6 +2224,49 @@ ${text}</tr>
     wrapper.appendChild(contentDiv);
     return wrapper;
   }
+  function getOrCreateIndicator() {
+    let el = document.getElementById("activity-indicator");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "activity-indicator";
+      el.className = "message message-assistant";
+      el.style.display = "none";
+      const inner = document.createElement("div");
+      inner.className = "activity-inner";
+      el.appendChild(inner);
+      getContainer().appendChild(el);
+    }
+    return el;
+  }
+  function showIndicatorDots() {
+    const el = getOrCreateIndicator();
+    const inner = el.querySelector(".activity-inner");
+    inner.innerHTML = '<div class="thinking-dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+    el.style.display = "";
+    const container = getContainer();
+    if (el.parentElement !== container || el !== container.lastElementChild) {
+      container.appendChild(el);
+    }
+    scrollToBottom();
+  }
+  function showIndicatorText(text) {
+    const el = getOrCreateIndicator();
+    const inner = el.querySelector(".activity-inner");
+    inner.innerHTML = `<span class="tool-status-text">${text}</span>`;
+    el.style.display = "";
+    const container = getContainer();
+    if (el.parentElement !== container || el !== container.lastElementChild) {
+      container.appendChild(el);
+    }
+    scrollToBottom();
+  }
+  function hideIndicator() {
+    const el = document.getElementById("activity-indicator");
+    if (el)
+      el.style.display = "none";
+  }
+  var isThinking = false;
+  var hasReceivedContent = false;
   window.VersoChatInit = () => {
     postMessage({ type: "ready" });
   };
@@ -2243,6 +2286,10 @@ ${text}</tr>
     const current = (_a2 = buffers.get(id)) != null ? _a2 : "";
     const updated = current + delta;
     buffers.set(id, updated);
+    if (!current) {
+      hasReceivedContent = true;
+      hideIndicator();
+    }
     let wrapper = getContainer().querySelector(
       `[data-id="${id}"]`
     );
@@ -2278,18 +2325,29 @@ ${text}</tr>
       buffers.delete(id);
     }
     dirtyIds.delete(id);
+    hideIndicator();
     scrollToBottom();
   };
   window.VersoChatSetToolStatus = (status) => {
-    const el = document.getElementById("tool-status");
-    const textEl = document.getElementById("tool-status-text");
+    if (hasReceivedContent)
+      return;
     if (status) {
-      textEl.textContent = status;
-      el.classList.remove("hidden");
+      showIndicatorText(status);
+    } else if (isThinking) {
+      showIndicatorDots();
     } else {
-      el.classList.add("hidden");
+      hideIndicator();
     }
-    scrollToBottom();
+  };
+  window.VersoChatSetThinking = (thinking) => {
+    isThinking = thinking;
+    if (thinking) {
+      hasReceivedContent = false;
+      showIndicatorDots();
+    } else {
+      hasReceivedContent = false;
+      hideIndicator();
+    }
   };
   window.VersoChatClear = () => {
     getContainer().innerHTML = "";

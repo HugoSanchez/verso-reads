@@ -25,6 +25,7 @@ final class Annotation {
     var chatPromptID: UUID?
     var chatPromptSnapshot: String?
     var colorRawValue: String?
+    var agentTurnID: UUID?
     var createdAt: Date
     var updatedAt: Date
 
@@ -44,6 +45,7 @@ final class Annotation {
         chatPromptID: UUID? = nil,
         chatPromptSnapshot: String? = nil,
         colorRawValue: String? = nil,
+        agentTurnID: UUID? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil
     ) {
@@ -57,6 +59,7 @@ final class Annotation {
         self.chatPromptID = chatPromptID
         self.chatPromptSnapshot = chatPromptSnapshot
         self.colorRawValue = colorRawValue
+        self.agentTurnID = agentTurnID
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt
     }

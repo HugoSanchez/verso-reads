@@ -105,12 +105,60 @@ Append text to the end of the user's existing notes. Creates the note if it does
 
 ---
 
-## Planned Tools (Not Yet Implemented)
+### `create_highlight`
+Highlight a passage in the document by matching a text quote to PDF coordinates.
 
-### Phase 2 — Highlight Tools
-- `create_highlight` — Highlight text in the PDF (requires PDFTextMatcher for text→coordinate mapping)
-- `delete_highlight` — Remove a highlight by ID
-- `update_highlight` — Change highlight color
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `quote` | string | yes | Exact text to highlight (must match document text) |
+| `page` | number | yes | Page number where the text appears (1-based) |
+| `color` | string | no | Highlight color: "yellow", "orange", "green", "blue" (default: yellow) |
+
+**Returns:** `{ "success": true, "id": "...", "page": N, "color": "..." }`
+
+**Implementation:** Uses `PDFTextMatcher` to find the quote in the PDF via `PDFDocument.findString()` with fuzzy fallbacks (normalized whitespace, substring matching, cross-page search). Converts `PDFSelection` bounds to normalized coordinates and creates an `Annotation` with `.highlight` kind. SwiftData's `@Query` in `ReaderCanvasView` automatically picks up the new annotation and `PDFKitView` renders it.
+
+---
+
+### `delete_highlight`
+Remove an existing highlight by its UUID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | yes | UUID of the highlight to delete |
+
+**Returns:** `{ "success": true, "deleted": "..." }`
+
+**Implementation:** Fetches the `Annotation` by ID, validates it belongs to the current document and is a highlight, then deletes it from SwiftData. `PDFKitView.Coordinator.sync()` automatically removes the PDF annotation on next update.
+
+---
+
+### `update_highlight`
+Change the color of an existing highlight.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `id` | string | yes | UUID of the highlight to update |
+| `color` | string | yes | New color: "yellow", "orange", "green", "blue" |
+
+**Returns:** `{ "success": true, "id": "...", "color": "..." }`
+
+**Implementation:** Fetches `Annotation` by ID, updates `colorRawValue` and `updatedAt`, saves. PDFKitView re-renders on next SwiftData sync.
+
+---
+
+### `undo_last_action`
+Undo all highlights created by the agent during the current conversation turn.
+
+No parameters.
+
+**Returns:** `{ "success": true, "undone": N }`
+
+**Implementation:** All annotations created by the agent are tagged with an `agentTurnID` (UUID generated per turn in ChatView). This tool deletes all annotations matching the current turn's ID. Only affects the current turn — previous turns are not touched.
+
+---
+
+## Planned Tools (Not Yet Implemented)
 
 ### Phase 3 — Cross-Document Intelligence
 - `search_all_documents` — RAG search across the entire library
