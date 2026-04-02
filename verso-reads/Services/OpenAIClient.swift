@@ -258,6 +258,182 @@ struct OpenAIClient {
         return object["type"] as? String
     }
 
+    // MARK: - Agent Streaming (with tool use)
+
+    enum SSEEvent {
+        case textDelta(String)
+        case functionCallStarted(callId: String, name: String, index: Int)
+        case functionCallArgumentsDelta(index: Int, delta: String)
+        case functionCallArgumentsDone(index: Int, arguments: String)
+        case responseCompleted(responseId: String)
+        case error(Error)
+        case done
+    }
+
+    func streamAgentResponse(
+        systemPrompt: String,
+        messages: [Message],
+        tools: [[String: Any]],
+        previousResponseId: String?,
+        toolResults: [[String: Any]]?
+    ) -> AsyncThrowingStream<SSEEvent, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let request = try buildAgentRequest(
+                        systemPrompt: systemPrompt,
+                        messages: messages,
+                        tools: tools,
+                        previousResponseId: previousResponseId,
+                        toolResults: toolResults
+                    )
+                    let (bytes, response) = try await session.bytes(for: request)
+
+                    if let httpResponse = response as? HTTPURLResponse,
+                       (200...299).contains(httpResponse.statusCode) == false {
+                        var data = Data()
+                        for try await byte in bytes {
+                            data.append(byte)
+                        }
+                        let message = String(data: data, encoding: .utf8)
+                        sseLog("HTTP error \(httpResponse.statusCode): \(message ?? "nil")")
+                        continuation.finish(throwing: OpenAIClientError.httpStatus(httpResponse.statusCode, message))
+                        return
+                    }
+
+                    if let httpResponse = response as? HTTPURLResponse {
+                        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
+                        sseLog("HTTP status \(httpResponse.statusCode) content-type=\(contentType)")
+                    }
+
+                    var parser = SSEParser()
+                    for try await line in bytes.lines {
+                        for eventData in parser.ingest(line: line) {
+                            if eventData == "[DONE]" {
+                                continuation.yield(.done)
+                                continuation.finish()
+                                return
+                            }
+                            if let sseEvent = parseSSEEvent(from: eventData) {
+                                continuation.yield(sseEvent)
+                                if case .responseCompleted = sseEvent {
+                                    continuation.finish()
+                                    return
+                                }
+                                if case .error = sseEvent {
+                                    continuation.finish()
+                                    return
+                                }
+                            }
+                        }
+                    }
+
+                    continuation.yield(.done)
+                    continuation.finish()
+                } catch {
+                    sseLog("Stream error: \(error.localizedDescription)")
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func buildAgentRequest(
+        systemPrompt: String,
+        messages: [Message],
+        tools: [[String: Any]],
+        previousResponseId: String?,
+        toolResults: [[String: Any]]?
+    ) throws -> URLRequest {
+        guard let url = URL(string: "https://api.openai.com/v1/responses") else {
+            throw OpenAIClientError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+
+        var body: [String: Any] = [
+            "model": model,
+            "stream": true,
+            "tools": tools
+        ]
+
+        if let prevId = previousResponseId, let results = toolResults {
+            // Continuation: send tool results with previous response reference
+            body["previous_response_id"] = prevId
+            body["input"] = results
+            sseLog("Building continuation request with \(results.count) tool result(s), previous_response_id=\(prevId)")
+        } else {
+            // Initial request: send full conversation
+            let mapped = messages.map { ["role": $0.role, "content": $0.content] }
+            let input: [[String: Any]] = [["role": "system", "content": systemPrompt]] + mapped
+            body["input"] = input
+            sseLog("Building initial request with \(messages.count) messages")
+        }
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
+        return request
+    }
+
+    private func parseSSEEvent(from data: String) -> SSEEvent? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any],
+              let type = object["type"] as? String else {
+            return nil
+        }
+
+        switch type {
+        case "response.output_text.delta":
+            if let delta = object["delta"] as? String {
+                return .textDelta(delta)
+            }
+
+        case "response.output_item.added":
+            if let item = object["item"] as? [String: Any],
+               item["type"] as? String == "function_call" {
+                let callId = item["call_id"] as? String ?? ""
+                let name = item["name"] as? String ?? ""
+                let index = object["output_index"] as? Int ?? 0
+                sseLog("Function call started: \(name) (call_id: \(callId), index: \(index))")
+                return .functionCallStarted(callId: callId, name: name, index: index)
+            }
+
+        case "response.function_call_arguments.delta":
+            let index = object["output_index"] as? Int ?? 0
+            let delta = object["delta"] as? String ?? ""
+            return .functionCallArgumentsDelta(index: index, delta: delta)
+
+        case "response.function_call_arguments.done":
+            let index = object["output_index"] as? Int ?? 0
+            let arguments = object["arguments"] as? String ?? ""
+            sseLog("Function call arguments done (index: \(index)): \(arguments.prefix(200))")
+            return .functionCallArgumentsDone(index: index, arguments: arguments)
+
+        case "response.completed":
+            let responseId = (object["response"] as? [String: Any])?["id"] as? String ?? ""
+            sseLog("Response completed (id: \(responseId))")
+            return .responseCompleted(responseId: responseId)
+
+        case "error":
+            let msg = (object["error"] as? [String: Any])?["message"] as? String ?? "Unknown error"
+            sseLog("Error event: \(msg)")
+            return .error(OpenAIClientError.apiError(msg))
+
+        default:
+            break
+        }
+
+        return nil
+    }
+
+    private func sseLog(_ message: String) {
+        #if DEBUG
+        print("[agent.sse] \(message)")
+        #endif
+    }
+
     private func debugLog(_ message: String) {
         #if DEBUG
         print("[OpenAIClient] \(message)")

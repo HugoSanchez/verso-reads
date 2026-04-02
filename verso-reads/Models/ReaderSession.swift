@@ -18,6 +18,9 @@ final class ReaderSession: ObservableObject {
     @Published var isRightPanelVisible: Bool = false
     @Published var pendingNoteQuote: NoteQuoteInsertion?
     @Published var activeNoteQuoteAnchor: Data?
+    @Published var currentPageNumber: Int?
+    @Published var pendingPageNavigation: Int?
+    @Published var pendingNoteAppend: String?
 
     let noteQuoteNavigation = PassthroughSubject<UUID, Never>()
 }

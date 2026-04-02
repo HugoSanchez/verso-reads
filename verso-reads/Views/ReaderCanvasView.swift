@@ -110,6 +110,19 @@ struct ReaderCanvasView: View {
         .onReceive(readerSession.noteQuoteNavigation) { annotationID in
             navigateToNoteQuote(annotationID)
         }
+        .onReceive(pdfController.$viewportVersion) { _ in
+            if let page = pdfController.pdfView?.currentPage,
+               let document = pdfController.pdfView?.document {
+                readerSession.currentPageNumber = document.index(for: page) + 1
+            }
+        }
+        .onChange(of: readerSession.pendingPageNavigation) { _, pageNumber in
+            guard let pageNumber,
+                  let document = pdfController.pdfView?.document,
+                  let page = document.page(at: pageNumber - 1) else { return }
+            pdfController.pdfView?.go(to: page)
+            readerSession.pendingPageNavigation = nil
+        }
         .onChange(of: activeDocument?.id) { _, _ in
             lastSelectionInfo = nil
             showSelectionOverlay = false

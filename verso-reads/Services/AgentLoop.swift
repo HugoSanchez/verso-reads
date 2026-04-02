@@ -1,0 +1,177 @@
+//
+//  AgentLoop.swift
+//  verso-reads
+//
+
+import Foundation
+import os
+
+private let loopLog = Logger(subsystem: "com.verso.agent", category: "loop")
+private let toolLog = Logger(subsystem: "com.verso.agent", category: "tool")
+
+enum AgentEvent {
+    case textDelta(String)
+    case toolCallStarted(String)
+    case toolCallCompleted(String)
+    case completed
+    case error(Error)
+}
+
+struct AgentLoop {
+    let client: OpenAIClient
+    let systemPrompt: String
+    let tools: [ToolDefinition]
+    let toolExecutor: ToolExecutor
+
+    private let maxIterations = 10
+
+    static func buildSystemPrompt(documentTitle: String) -> String {
+        """
+        You are a reading assistant for Verso Reads, helping the user with "\(documentTitle)".
+
+        ## When to use tools
+        - search_document: When the user asks about specific content in the document and you don't already have relevant context in the conversation. Do NOT search if the question is about text already provided as context (e.g. selected text).
+        - read_highlights: When the user asks about their existing highlights or annotations.
+        - read_notes: When the user asks about or references their notes.
+        - get_document_info: When you need document metadata (title, author, page count).
+        - get_current_page: When you need to know what page the user is viewing.
+        - get_page_text: When you need the full text of a specific page.
+        - navigate_to_page: When the user asks to go to a specific page or you want to direct them to relevant content.
+        - create_note: When the user asks you to write or create a note from scratch. This replaces existing note content.
+        - append_to_note: When the user asks you to add something to their notes. Prefer this over create_note to avoid overwriting existing notes.
+
+        ## Guidelines
+        - Be concise. Synthesize search results — don't dump raw text.
+        - If you don't have enough context to answer a question about the document, use search_document.
+        - Reference specific pages when possible.
+        - When writing notes, use clear formatting with line breaks between sections.
+        - Prefer append_to_note over create_note unless the user explicitly asks to start fresh.
+        - IMPORTANT: If a tool call fails or returns an error, tell the user honestly that you couldn't access the information and suggest they try again or share the relevant text. Do NOT make up generic answers or provide information that isn't from the actual document. Only answer based on content you have actually retrieved or been given.
+        """
+    }
+
+    func run(messages: [OpenAIClient.Message]) -> AsyncThrowingStream<AgentEvent, Error> {
+        let toolDefs = tools.map { $0.toJSON() }
+
+        return AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    var previousResponseId: String? = nil
+                    var currentInput: [[String: Any]]? = nil
+                    var iteration = 0
+
+                    loopLog.debug("Starting run with \(messages.count) messages, \(self.tools.count) tools")
+
+                    while iteration < maxIterations {
+                        iteration += 1
+                        loopLog.debug("Iteration \(iteration)/\(self.maxIterations)")
+
+                        let stream: AsyncThrowingStream<OpenAIClient.SSEEvent, Error>
+
+                        if let prevId = previousResponseId, let toolResults = currentInput {
+                            // Continuation after tool execution
+                            stream = client.streamAgentResponse(
+                                systemPrompt: systemPrompt,
+                                messages: [],
+                                tools: toolDefs,
+                                previousResponseId: prevId,
+                                toolResults: toolResults
+                            )
+                        } else {
+                            // First request
+                            stream = client.streamAgentResponse(
+                                systemPrompt: systemPrompt,
+                                messages: messages,
+                                tools: toolDefs,
+                                previousResponseId: nil,
+                                toolResults: nil
+                            )
+                        }
+
+                        // Collect tool calls from this response
+                        var pendingCalls: [Int: PendingToolCall] = [:]
+                        var responseId: String = ""
+                        var hasToolCalls = false
+
+                        for try await event in stream {
+                            switch event {
+                            case .textDelta(let text):
+                                continuation.yield(.textDelta(text))
+
+                            case .functionCallStarted(let callId, let name, let index):
+                                loopLog.debug("Function call started: \(name) (call_id: \(callId))")
+                                pendingCalls[index] = PendingToolCall(callId: callId, name: name, arguments: "")
+                                hasToolCalls = true
+                                continuation.yield(.toolCallStarted(name))
+
+                            case .functionCallArgumentsDelta(let index, let delta):
+                                pendingCalls[index]?.arguments += delta
+
+                            case .functionCallArgumentsDone(let index, let arguments):
+                                pendingCalls[index]?.arguments = arguments
+                                if let call = pendingCalls[index] {
+                                    loopLog.debug("Function call arguments done: \(call.name) -> \(arguments.prefix(200))")
+                                }
+
+                            case .responseCompleted(let id):
+                                responseId = id
+                                loopLog.debug("Response completed (id: \(id))")
+
+                            case .error(let error):
+                                loopLog.error("SSE error: \(error.localizedDescription)")
+                                continuation.yield(.error(error))
+                                continuation.finish()
+                                return
+
+                            case .done:
+                                break
+                            }
+                        }
+
+                        // If no tool calls, we're done
+                        guard hasToolCalls else {
+                            loopLog.debug("Completed after \(iteration) iteration(s) (no tool calls)")
+                            continuation.yield(.completed)
+                            continuation.finish()
+                            return
+                        }
+
+                        // Execute tool calls
+                        let sortedCalls = pendingCalls.sorted { $0.key < $1.key }
+                        toolLog.debug("Executing \(sortedCalls.count) tool call(s)")
+
+                        var toolResults: [[String: Any]] = []
+                        for (_, call) in sortedCalls {
+                            let result = await toolExecutor.execute(name: call.name, arguments: call.arguments)
+                            toolResults.append([
+                                "type": "function_call_output",
+                                "call_id": call.callId,
+                                "output": result
+                            ])
+                            continuation.yield(.toolCallCompleted(call.name))
+                        }
+
+                        toolLog.debug("Sending \(toolResults.count) tool result(s) with previous_response_id: \(responseId)")
+                        previousResponseId = responseId
+                        currentInput = toolResults
+                    }
+
+                    loopLog.warning("Max iterations (\(self.maxIterations)) reached")
+                    continuation.yield(.completed)
+                    continuation.finish()
+
+                } catch {
+                    loopLog.error("Agent loop error: \(error.localizedDescription)")
+                    continuation.yield(.error(error))
+                    continuation.finish()
+                }
+            }
+        }
+    }
+}
+
+private struct PendingToolCall {
+    let callId: String
+    let name: String
+    var arguments: String
+}

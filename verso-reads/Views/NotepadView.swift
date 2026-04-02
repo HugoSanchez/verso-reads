@@ -21,10 +21,12 @@ struct NotepadView: View {
             content: content,
             documentID: readerSession.activeDocumentID,
             pendingQuoteInsertion: pendingQuoteInsertion,
+            pendingTextAppend: readerSession.pendingNoteAppend,
             onContentChange: handleContentChange,
             onQuoteClick: handleQuoteClick,
             onQuoteRemove: handleQuoteRemove,
-            onQuoteInserted: { pendingQuoteInsertion = nil }
+            onQuoteInserted: { pendingQuoteInsertion = nil },
+            onTextAppended: { readerSession.pendingNoteAppend = nil }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {

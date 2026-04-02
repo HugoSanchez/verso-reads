@@ -26,14 +26,17 @@ struct MarkdownTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: AutoSizingTextView, context: Context) {
-        if nsView.attributedString() != text {
-            nsView.textStorage?.setAttributedString(text)
-            nsView.invalidateIntrinsicContentSize()
+        guard nsView.textStorage?.length != text.length || nsView.attributedString() != text else {
+            return
         }
+        nsView.textStorage?.setAttributedString(text)
+        nsView.scheduleInvalidation()
     }
 }
 
 final class AutoSizingTextView: NSTextView {
+    private var invalidationScheduled = false
+
     override var intrinsicContentSize: NSSize {
         guard let layoutManager = layoutManager, let textContainer = textContainer else {
             return super.intrinsicContentSize
@@ -41,5 +44,18 @@ final class AutoSizingTextView: NSTextView {
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
         return NSSize(width: NSView.noIntrinsicMetric, height: ceil(usedRect.height))
+    }
+
+    /// Coalesce rapid invalidation calls into a single layout pass.
+    /// During streaming, updateNSView fires many times per second;
+    /// this ensures we only recalculate intrinsic size once per frame.
+    func scheduleInvalidation() {
+        guard invalidationScheduled == false else { return }
+        invalidationScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.invalidationScheduled = false
+            self.invalidateIntrinsicContentSize()
+        }
     }
 }

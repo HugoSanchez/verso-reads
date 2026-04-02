@@ -15,13 +15,15 @@ struct NotesWebView: NSViewRepresentable {
     let content: String
     let documentID: UUID?
     let pendingQuoteInsertion: QuoteInsertion?
+    let pendingTextAppend: String?
     let onContentChange: (String) -> Void
     let onQuoteClick: (UUID) -> Void
     let onQuoteRemove: (UUID) -> Void
     let onQuoteInserted: () -> Void
+    let onTextAppended: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onContentChange: onContentChange, onQuoteClick: onQuoteClick, onQuoteRemove: onQuoteRemove, onQuoteInserted: onQuoteInserted)
+        Coordinator(onContentChange: onContentChange, onQuoteClick: onQuoteClick, onQuoteRemove: onQuoteRemove, onQuoteInserted: onQuoteInserted, onTextAppended: onTextAppended)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -56,6 +58,10 @@ struct NotesWebView: NSViewRepresentable {
         if let insertion = pendingQuoteInsertion {
             context.coordinator.insertQuote(insertion, into: webView)
         }
+
+        if let text = pendingTextAppend {
+            context.coordinator.appendText(text, into: webView)
+        }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -67,16 +73,19 @@ struct NotesWebView: NSViewRepresentable {
         private var pendingContent: String?
         private var lastInsertedQuoteId: UUID?
         private var pendingQuoteInsertion: QuoteInsertion?
+        private var lastAppendedText: String?
         private let onContentChange: (String) -> Void
         private let onQuoteClick: (UUID) -> Void
         private let onQuoteRemove: (UUID) -> Void
         private let onQuoteInserted: () -> Void
+        private let onTextAppended: () -> Void
 
-        init(onContentChange: @escaping (String) -> Void, onQuoteClick: @escaping (UUID) -> Void, onQuoteRemove: @escaping (UUID) -> Void, onQuoteInserted: @escaping () -> Void) {
+        init(onContentChange: @escaping (String) -> Void, onQuoteClick: @escaping (UUID) -> Void, onQuoteRemove: @escaping (UUID) -> Void, onQuoteInserted: @escaping () -> Void, onTextAppended: @escaping () -> Void) {
             self.onContentChange = onContentChange
             self.onQuoteClick = onQuoteClick
             self.onQuoteRemove = onQuoteRemove
             self.onQuoteInserted = onQuoteInserted
+            self.onTextAppended = onTextAppended
         }
 
         func resetForDocumentChange(_ newDocumentID: UUID?) {
@@ -116,19 +125,51 @@ struct NotesWebView: NSViewRepresentable {
             }
         }
 
+        func appendText(_ text: String, into webView: WKWebView) {
+            guard lastAppendedText != text else { return }
+
+            if isReady == false {
+                print("[NotesWebView] appendText queued: editor not ready")
+                return
+            }
+
+            lastAppendedText = text
+
+            let escaped = text
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+            let js = "window.VersoNotesAppendText && window.VersoNotesAppendText(\"\(escaped)\");"
+            print("[NotesWebView] executing appendText (length=\(text.count))")
+            webView.evaluateJavaScript(js) { [weak self] _, error in
+                if let error {
+                    print("[NotesWebView] appendText JS error: \(error)")
+                } else {
+                    print("[NotesWebView] appendText JS OK")
+                }
+                self?.onTextAppended()
+            }
+        }
+
         func queueContent(_ content: String, for webView: WKWebView) {
             if let lastEmitted = lastEmittedContent, content == lastEmitted {
+                print("[NotesWebView] queueContent SKIPPED: matches lastEmittedContent (length=\(content.count))")
                 return
             }
             if isReady == false {
                 pendingContent = content
+                print("[NotesWebView] queueContent QUEUED: editor not ready yet")
                 return
             }
+            print("[NotesWebView] queueContent → applyContent (length=\(content.count))")
             applyContent(content, to: webView)
         }
 
         func applyContent(_ content: String, to webView: WKWebView) {
-            guard content != lastAppliedContent else { return }
+            guard content != lastAppliedContent else {
+                print("[NotesWebView] applyContent SKIPPED: matches lastAppliedContent")
+                return
+            }
             lastAppliedContent = content
 
             // Escape the JSON string for JavaScript
@@ -138,7 +179,14 @@ struct NotesWebView: NSViewRepresentable {
                 .replacingOccurrences(of: "\n", with: "\\n")
                 .replacingOccurrences(of: "\r", with: "\\r")
             let js = "window.VersoNotesSetContent && window.VersoNotesSetContent(\"\(escaped)\");"
-            webView.evaluateJavaScript(js, completionHandler: nil)
+            print("[NotesWebView] applyContent CALLING JS VersoNotesSetContent (length=\(content.count))")
+            webView.evaluateJavaScript(js) { result, error in
+                if let error {
+                    print("[NotesWebView] JS VersoNotesSetContent ERROR: \(error)")
+                } else {
+                    print("[NotesWebView] JS VersoNotesSetContent OK, result=\(String(describing: result))")
+                }
+            }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -201,6 +249,11 @@ struct NotesWebView: NSViewRepresentable {
                     DispatchQueue.main.async {
                         self.onQuoteRemove(annotationId)
                     }
+                }
+
+            case "debug":
+                if let message = payload["message"] as? String {
+                    print("[NotesWebView JS] \(message)")
                 }
 
             default:
@@ -266,10 +319,12 @@ private final class NotesWKWebView: WKWebView {
         content: "",
         documentID: nil,
         pendingQuoteInsertion: nil,
+        pendingTextAppend: nil,
         onContentChange: { _ in },
         onQuoteClick: { _ in },
         onQuoteRemove: { _ in },
-        onQuoteInserted: {}
+        onQuoteInserted: {},
+        onTextAppended: {}
     )
     .frame(width: 320, height: 320)
 }

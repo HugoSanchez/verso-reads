@@ -6,8 +6,8 @@
 import Foundation
 import SQLite3
 
-@_silgen_name("verso_sqlite_vec_register")
-private func verso_sqlite_vec_register() -> Int32
+@_silgen_name("verso_sqlite_vec_register_on")
+private nonisolated func verso_sqlite_vec_register_on(_ db: OpaquePointer?) -> Int32
 
 actor RAGStore {
     static let shared = RAGStore()
@@ -48,7 +48,6 @@ actor RAGStore {
 
     private var db: OpaquePointer?
     private var didBootstrap = false
-    private var didRegisterVec = false
     private let embeddingDimensions = 1536
     private let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
@@ -214,8 +213,6 @@ actor RAGStore {
             throw RAGStoreError.invalidDatabaseURL
         }
 
-        try await registerVecIfNeeded()
-
         var handle: OpaquePointer?
         let result = sqlite3_open(dbURL.path, &handle)
         guard result == SQLITE_OK, let openedHandle = handle else {
@@ -223,20 +220,14 @@ actor RAGStore {
             throw RAGStoreError.openFailed(message)
         }
 
+        // Register sqlite-vec directly on the open connection
+        let vecResult = verso_sqlite_vec_register_on(openedHandle)
+        guard vecResult == SQLITE_OK else {
+            sqlite3_close(openedHandle)
+            throw RAGStoreError.extensionLoadFailed("sqlite3_vec_init failed with code \(vecResult).")
+        }
+
         db = openedHandle
-    }
-
-    private func registerVecIfNeeded() async throws {
-        guard didRegisterVec == false else { return }
-
-        let result = await MainActor.run {
-            verso_sqlite_vec_register()
-        }
-        guard result == SQLITE_OK else {
-            throw RAGStoreError.extensionLoadFailed("sqlite3_auto_extension failed with code \(result).")
-        }
-
-        didRegisterVec = true
     }
 
     private func bootstrapIfNeeded() async throws {
