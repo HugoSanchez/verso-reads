@@ -31,6 +31,39 @@ struct RAGQueryService {
         return format(results: results)
     }
 
+    func retrieveContextAll(
+        query: String,
+        apiKey: String,
+        maxChunks: Int = 6
+    ) async throws -> String? {
+        let client = OpenAIClient(apiKey: apiKey, model: embeddingModel)
+        let embeddings = try await client.createEmbeddings(input: [query], model: embeddingModel)
+        guard let embedding = embeddings.first else { return nil }
+        let embeddingJSON = try jsonString(from: embedding)
+
+        let results = try await RAGStore.shared.searchSimilarAll(
+            embeddingJSON: embeddingJSON,
+            limit: maxChunks
+        )
+
+        guard results.isEmpty == false else { return nil }
+        return formatAll(results: results)
+    }
+
+    private func formatAll(results: [RAGStore.RAGChunkResultAll]) -> String {
+        results.enumerated().map { index, result in
+            let label: String
+            if let start = result.pageStart, let end = result.pageEnd, start != end {
+                label = "[\(result.documentTitle)] Page \(start)-\(end)"
+            } else if let start = result.pageStart {
+                label = "[\(result.documentTitle)] Page \(start)"
+            } else {
+                label = "[\(result.documentTitle)] Section \(index + 1)"
+            }
+            return "\(label):\n\(result.text)"
+        }.joined(separator: "\n\n")
+    }
+
     private func format(results: [RAGStore.RAGChunkResult]) -> String {
         results.enumerated().map { index, result in
             let label: String

@@ -64,6 +64,14 @@ final class ToolExecutor {
                 result = try executeUpdateHighlight(arguments: arguments)
             case "undo_last_action":
                 result = try executeUndoLastAction()
+            case "get_library":
+                result = try executeGetLibrary()
+            case "get_collections":
+                result = try executeGetCollections()
+            case "get_chat_history":
+                result = try executeGetChatHistory(arguments: arguments)
+            case "search_all_documents":
+                result = try await executeSearchAllDocuments(arguments: arguments)
             default:
                 result = "{\"error\": \"Unknown tool: \(name)\"}"
             }
@@ -148,6 +156,7 @@ final class ToolExecutor {
         }
 
         var info: [String: Any] = [
+            "id": document.id.uuidString,
             "title": document.title,
             "filename": document.originalFilename,
             "fileType": document.contentTypeIdentifier
@@ -360,6 +369,105 @@ final class ToolExecutor {
 
         log.debug("Undid \(turnAnnotations.count) action(s) from turn \(self.turnID)")
         return "{\"success\": true, \"undone\": \(turnAnnotations.count)}"
+    }
+
+    // MARK: - Cross-Document Tools
+
+    private func executeGetLibrary() throws -> String {
+        let descriptor = FetchDescriptor<LibraryDocument>()
+        let allDocs = try modelContext.fetch(descriptor)
+        let sorted = allDocs.sorted { $0.lastOpenedAt > $1.lastOpenedAt }
+        let limited = Array(sorted.prefix(50))
+
+        let items: [[String: Any]] = limited.map { doc in
+            var item: [String: Any] = [
+                "id": doc.id.uuidString,
+                "title": doc.title,
+                "filename": doc.originalFilename
+            ]
+            let formatter = ISO8601DateFormatter()
+            item["lastOpenedAt"] = formatter.string(from: doc.lastOpenedAt)
+            return item
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func executeGetCollections() throws -> String {
+        let collectionDescriptor = FetchDescriptor<DocumentCollection>()
+        let collections = try modelContext.fetch(collectionDescriptor)
+
+        let docDescriptor = FetchDescriptor<LibraryDocument>()
+        let allDocs = try modelContext.fetch(docDescriptor)
+        let docsByID = Dictionary(uniqueKeysWithValues: allDocs.map { ($0.id, $0) })
+
+        let items: [[String: Any]] = collections.map { collection in
+            let docs: [[String: String]] = collection.documentIDs.compactMap { docID in
+                guard let doc = docsByID[docID] else { return nil }
+                return ["id": docID.uuidString, "title": doc.title]
+            }
+            return [
+                "id": collection.id.uuidString,
+                "name": collection.name,
+                "documents": docs
+            ] as [String: Any]
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func executeGetChatHistory(arguments: String) throws -> String {
+        let targetID: UUID
+        if let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+           let idString = args["document_id"] as? String,
+           idString.isEmpty == false,
+           idString.lowercased() != "current",
+           let parsed = UUID(uuidString: idString) {
+            targetID = parsed
+        } else {
+            targetID = documentID
+        }
+
+        let descriptor = FetchDescriptor<ChatMessageRecord>()
+        let allMessages = try modelContext.fetch(descriptor)
+        let filtered = allMessages
+            .filter { $0.documentID == targetID }
+            .sorted { $0.createdAt < $1.createdAt }
+        let limited = Array(filtered.suffix(30))
+
+        guard limited.isEmpty == false else {
+            return "No chat history found for this document."
+        }
+
+        let formatter = ISO8601DateFormatter()
+        let items: [[String: String]] = limited.map { record in
+            [
+                "role": record.roleRawValue,
+                "content": String(record.content.prefix(500)),
+                "createdAt": formatter.string(from: record.createdAt)
+            ]
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func executeSearchAllDocuments(arguments: String) async throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let query = args["query"] as? String else {
+            return "{\"error\": \"Missing required parameter: query\"}"
+        }
+
+        guard let context = try await RAGQueryService.shared.retrieveContextAll(
+            query: query,
+            apiKey: apiKey
+        ) else {
+            return "No relevant passages found across your library for: \"\(query)\""
+        }
+
+        return context
     }
 
     // MARK: - Helpers

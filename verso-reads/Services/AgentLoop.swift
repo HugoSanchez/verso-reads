@@ -43,6 +43,10 @@ struct AgentLoop {
         - delete_highlight: When the user asks to remove a highlight. Use read_highlights first to find the ID.
         - update_highlight: When the user asks to change a highlight's color. Use read_highlights first to find the ID.
         - undo_last_action: When the user wants to undo highlights you just created in this turn (e.g. "undo that", "remove those").
+        - search_all_documents: When the user asks about connections between documents, wants to find something across their library, or references content not in the current document.
+        - get_library: When the user asks what documents they have, or you need to understand their reading list.
+        - get_collections: When the user asks about their collections or how their reading is organized.
+        - get_chat_history: When the user references a prior conversation or asks "what did we discuss about X?"
 
         ## Guidelines
         - Be concise. Synthesize search results — don't dump raw text.

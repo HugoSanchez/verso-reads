@@ -35,7 +35,11 @@ enum AgentTools {
         createHighlight,
         deleteHighlight,
         updateHighlight,
-        undoLastAction
+        undoLastAction,
+        getLibrary,
+        getCollections,
+        getChatHistory,
+        searchAllDocuments
     ]
 
     static let searchDocument = ToolDefinition(
@@ -231,6 +235,62 @@ enum AgentTools {
             "type": "object",
             "properties": [String: Any](),
             "required": [String](),
+            "additionalProperties": false
+        ]
+    )
+
+    // MARK: - Cross-Document Tools
+
+    static let getLibrary = ToolDefinition(
+        name: "get_library",
+        description: "List all documents in the user's library. Use this when the user asks what documents they have or you need to understand their reading list.",
+        parameters: [
+            "type": "object",
+            "properties": [String: Any](),
+            "required": [String](),
+            "additionalProperties": false
+        ]
+    )
+
+    static let getCollections = ToolDefinition(
+        name: "get_collections",
+        description: "List all document collections and their members. Use this when the user asks about their collections or how their reading is organized.",
+        parameters: [
+            "type": "object",
+            "properties": [String: Any](),
+            "required": [String](),
+            "additionalProperties": false
+        ]
+    )
+
+    static let getChatHistory = ToolDefinition(
+        name: "get_chat_history",
+        description: "Read past chat conversations about a specific document. Use this when the user references a prior conversation or asks what you discussed before. Pass 'current' to get history for the document being read right now.",
+        parameters: [
+            "type": "object",
+            "properties": [
+                "document_id": [
+                    "type": "string",
+                    "description": "The UUID of the document, or 'current' for the document being read right now"
+                ]
+            ],
+            "required": ["document_id"],
+            "additionalProperties": false
+        ]
+    )
+
+    static let searchAllDocuments = ToolDefinition(
+        name: "search_all_documents",
+        description: "Search across ALL documents in the user's library for passages relevant to a query. Use this when the user asks about connections between documents, wants to find something across their library, or references content not in the current document.",
+        parameters: [
+            "type": "object",
+            "properties": [
+                "query": [
+                    "type": "string",
+                    "description": "Natural language search query to find relevant passages across all documents"
+                ]
+            ],
+            "required": ["query"],
             "additionalProperties": false
         ]
     )
