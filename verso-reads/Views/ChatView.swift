@@ -230,6 +230,7 @@ struct ChatView: View {
                         case .completed:
                             break
                         case .error(let error):
+                            setErrorFallback(error.localizedDescription, for: assistantID)
                             toastManager.show(error.localizedDescription, style: .error)
                         }
                     }
@@ -252,7 +253,10 @@ struct ChatView: View {
                     isSending = false
                     toolStatus = nil
                     streamingMessageID = nil
-                    if !(error is CancellationError) {
+                    if error is CancellationError {
+                        removeEmptyAssistantMessage(id: assistantID)
+                    } else {
+                        setErrorFallback(error.localizedDescription, for: assistantID)
                         toastManager.show(error.localizedDescription, style: .error)
                     }
                 }
@@ -283,6 +287,10 @@ struct ChatView: View {
         case "delete_highlight": return "Removing highlight..."
         case "update_highlight": return "Updating highlight..."
         case "undo_last_action": return "Undoing..."
+        case "get_library": return "Browsing library..."
+        case "get_collections": return "Reading collections..."
+        case "get_chat_history": return "Reading chat history..."
+        case "search_all_documents": return "Searching library..."
         default: return "Working..."
         }
     }
@@ -429,6 +437,20 @@ struct ChatView: View {
             try modelContext.save()
         } catch {
             print("Failed to save assistant message: \(error)")
+        }
+    }
+
+    private func setErrorFallback(_ errorDescription: String, for assistantID: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == assistantID }) else { return }
+        if messages[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages[index].content = "Sorry, something went wrong. Please try again."
+        }
+    }
+
+    private func removeEmptyAssistantMessage(id: UUID) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
+        if messages[index].content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages.remove(at: index)
         }
     }
 

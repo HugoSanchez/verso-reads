@@ -46,6 +46,16 @@ actor RAGStore {
         let distance: Double
     }
 
+    struct RAGChunkResultAll {
+        let chunkIndex: Int
+        let pageStart: Int?
+        let pageEnd: Int?
+        let text: String
+        let distance: Double
+        let documentID: String
+        let documentTitle: String
+    }
+
     private var db: OpaquePointer?
     private var didBootstrap = false
     private let embeddingDimensions = 1536
@@ -186,6 +196,54 @@ actor RAGStore {
                     pageEnd: pageEnd,
                     text: text,
                     distance: distance
+                )
+            )
+        }
+        return results
+    }
+
+    func searchSimilarAll(
+        embeddingJSON: String,
+        limit: Int = 6
+    ) async throws -> [RAGChunkResultAll] {
+        try await openIfNeeded()
+        try await bootstrapIfNeeded()
+
+        let sql = """
+        SELECT re.chunk_index, re.page_start, re.page_end, re.text, re.distance,
+               re.document_id, rd.title
+        FROM rag_embeddings re
+        JOIN rag_documents rd ON re.document_id = rd.document_id
+        WHERE re.embedding MATCH ?
+          AND k = ?;
+        """
+        let statement = try prepare(sql: sql)
+        defer { sqlite3_finalize(statement) }
+
+        bindText(statement, index: 1, value: embeddingJSON)
+        sqlite3_bind_int(statement, 2, Int32(limit))
+
+        var results: [RAGChunkResultAll] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let chunkIndex = Int(sqlite3_column_int(statement, 0))
+            let pageStart = sqlite3_column_type(statement, 1) == SQLITE_NULL ? nil : Int(sqlite3_column_int(statement, 1))
+            let pageEnd = sqlite3_column_type(statement, 2) == SQLITE_NULL ? nil : Int(sqlite3_column_int(statement, 2))
+            let textPointer = sqlite3_column_text(statement, 3)
+            let text = textPointer.map { String(cString: $0) } ?? ""
+            let distance = sqlite3_column_double(statement, 4)
+            let docIDPointer = sqlite3_column_text(statement, 5)
+            let docID = docIDPointer.map { String(cString: $0) } ?? ""
+            let titlePointer = sqlite3_column_text(statement, 6)
+            let title = titlePointer.map { String(cString: $0) } ?? ""
+            results.append(
+                RAGChunkResultAll(
+                    chunkIndex: chunkIndex,
+                    pageStart: pageStart,
+                    pageEnd: pageEnd,
+                    text: text,
+                    distance: distance,
+                    documentID: docID,
+                    documentTitle: title
                 )
             )
         }
