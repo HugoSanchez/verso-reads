@@ -162,6 +162,23 @@ struct ChatWebView: NSViewRepresentable {
             // Navigation finished but wait for JS "ready" message
         }
 
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            // Allow the initial page load and internal navigation
+            if navigationAction.navigationType == .other {
+                decisionHandler(.allow)
+                return
+            }
+
+            // Open all link clicks in the system browser
+            if let url = navigationAction.request.url, url.scheme == "https" || url.scheme == "http" {
+                NSWorkspace.shared.open(url)
+                decisionHandler(.cancel)
+                return
+            }
+
+            decisionHandler(.allow)
+        }
+
         // MARK: - WKScriptMessageHandler
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
