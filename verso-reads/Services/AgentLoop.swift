@@ -47,6 +47,12 @@ struct AgentLoop {
         - get_library: When the user asks what documents they have, or you need to understand their reading list.
         - get_collections: When the user asks about their collections or how their reading is organized.
         - get_chat_history: When the user references a prior conversation or asks "what did we discuss about X?"
+        - search_arxiv: When the user asks to find academic papers, search for related work, or wants to know what's been published on a topic. Returns paper metadata and abstracts.
+        - search_semantic_scholar: Similar to search_arxiv but includes citation counts and venue info. Prefer this when the user cares about paper impact or wants well-established papers.
+        - search_pubmed: When the user asks about medical, biological, health, or life sciences research. PubMed covers biomedical literature that arXiv and Semantic Scholar may not have. NOTE: PubMed papers cannot be downloaded into the library — if the user asks, let them know this isn't supported yet.
+        - download_paper: When the user asks to download, save, or add a paper to their library. IMPORTANT: Always confirm with the user before downloading — tell them the paper title and ask if they want to add it.
+        - add_to_collection: When the user asks to organize a document into a collection. Creates the collection if it doesn't exist.
+        - Web search is available automatically — you can search the web for general information, recent news, or to supplement academic searches. Use it when other search tools fail or when the user asks about something beyond academic papers.
 
         ## Guidelines
         - Be concise. Synthesize search results — don't dump raw text.
@@ -120,6 +126,10 @@ struct AgentLoop {
                                 if let call = pendingCalls[index] {
                                     loopLog.debug("Function call arguments done: \(call.name) -> \(arguments.prefix(200))")
                                 }
+
+                            case .hostedToolCompleted(let name):
+                                loopLog.debug("Hosted tool completed: \(name)")
+                                continuation.yield(.toolCallCompleted(name))
 
                             case .responseCompleted(let id):
                                 responseId = id

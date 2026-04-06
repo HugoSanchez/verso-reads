@@ -291,6 +291,12 @@ struct ChatView: View {
         case "get_collections": return "Reading collections..."
         case "get_chat_history": return "Reading chat history..."
         case "search_all_documents": return "Searching library..."
+        case "search_arxiv": return "Searching arXiv..."
+        case "search_semantic_scholar": return "Searching papers..."
+        case "search_pubmed": return "Searching PubMed..."
+        case "download_paper": return "Downloading paper..."
+        case "add_to_collection": return "Organizing..."
+        case "web_search": return "Searching the web..."
         default: return "Working..."
         }
     }
@@ -461,6 +467,12 @@ struct ChatView: View {
     }
 }
 
+private final class PlainPasteTextView: NSTextView {
+    override func paste(_ sender: Any?) {
+        pasteAsPlainText(sender)
+    }
+}
+
 private struct AutoGrowingTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
@@ -488,11 +500,12 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
 
-        let textView = NSTextView()
+        let textView = PlainPasteTextView()
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainerInset = NSSize(width: 0, height: 2)
         textView.backgroundColor = .clear
+        textView.isRichText = false
         textView.font = NSFont.systemFont(ofSize: fontSize)
         textView.textColor = NSColor.black.withAlphaComponent(0.85)
         textView.textContainer?.widthTracksTextView = true

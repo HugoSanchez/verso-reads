@@ -72,6 +72,16 @@ final class ToolExecutor {
                 result = try executeGetChatHistory(arguments: arguments)
             case "search_all_documents":
                 result = try await executeSearchAllDocuments(arguments: arguments)
+            case "search_arxiv":
+                result = try await executeSearchArxiv(arguments: arguments)
+            case "search_semantic_scholar":
+                result = try await executeSearchSemanticScholar(arguments: arguments)
+            case "search_pubmed":
+                result = try await executeSearchPubmed(arguments: arguments)
+            case "download_paper":
+                result = try await executeDownloadPaper(arguments: arguments)
+            case "add_to_collection":
+                result = try executeAddToCollection(arguments: arguments)
             default:
                 result = "{\"error\": \"Unknown tool: \(name)\"}"
             }
@@ -468,6 +478,238 @@ final class ToolExecutor {
         }
 
         return context
+    }
+
+    // MARK: - External Research Tools
+
+    private func executeSearchArxiv(arguments: String) async throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let query = args["query"] as? String else {
+            return "{\"error\": \"Missing required parameter: query\"}"
+        }
+
+        let maxResults = (args["max_results"] as? Int) ?? 5
+        let papers = try await ArxivClient().search(query: query, maxResults: maxResults)
+
+        guard papers.isEmpty == false else {
+            return "No papers found on arXiv for: \"\(query)\""
+        }
+
+        let items: [[String: Any]] = papers.map { paper in
+            [
+                "arxiv_id": paper.arxivID,
+                "title": paper.title,
+                "authors": paper.authors,
+                "abstract": paper.abstract,
+                "published": paper.published,
+                "pdf_url": paper.pdfURL
+            ] as [String: Any]
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func executeSearchSemanticScholar(arguments: String) async throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let query = args["query"] as? String else {
+            return "{\"error\": \"Missing required parameter: query\"}"
+        }
+
+        let maxResults = (args["max_results"] as? Int) ?? 5
+        let papers: [S2Paper]
+        do {
+            papers = try await SemanticScholarClient().search(query: query, maxResults: maxResults)
+        } catch let error as SemanticScholarClient.S2Error where error == .rateLimited {
+            return "{\"error\": \"Semantic Scholar is temporarily unavailable due to rate limiting. You can try search_arxiv instead, or use the web_search tool as a fallback.\"}"
+        }
+
+        guard papers.isEmpty == false else {
+            return "No papers found on Semantic Scholar for: \"\(query)\""
+        }
+
+        let items: [[String: Any]] = papers.map { paper in
+            var item: [String: Any] = [
+                "paper_id": paper.paperId,
+                "title": paper.title,
+                "authors": paper.authors,
+                "abstract": paper.abstract
+            ]
+            if let year = paper.year { item["year"] = year }
+            if let citations = paper.citationCount { item["citation_count"] = citations }
+            if let venue = paper.venue, venue.isEmpty == false { item["venue"] = venue }
+            if let pdfURL = paper.pdfURL { item["pdf_url"] = pdfURL }
+            return item
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private func executeSearchPubmed(arguments: String) async throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let query = args["query"] as? String else {
+            return "{\"error\": \"Missing required parameter: query\"}"
+        }
+
+        let maxResults = (args["max_results"] as? Int) ?? 5
+        let papers = try await PubMedClient().search(query: query, maxResults: maxResults)
+
+        guard papers.isEmpty == false else {
+            return "No papers found on PubMed for: \"\(query)\""
+        }
+
+        let items: [[String: Any]] = papers.map { paper in
+            var item: [String: Any] = [
+                "pmid": paper.pmid,
+                "title": paper.title,
+                "authors": paper.authors,
+                "abstract": paper.abstract,
+                "pubmed_url": "https://pubmed.ncbi.nlm.nih.gov/\(paper.pmid)/"
+            ]
+            if paper.published.isEmpty == false { item["published"] = paper.published }
+            if paper.journal.isEmpty == false { item["journal"] = paper.journal }
+            item["downloadable"] = false
+            return item
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: items, options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    private static let allowedDownloadDomains: Set<String> = [
+        "arxiv.org",
+        "export.arxiv.org",
+        "semanticscholar.org",
+        "pdfs.semanticscholar.org",
+        "openreview.net",
+        "aclanthology.org",
+        "proceedings.neurips.cc",
+        "proceedings.mlr.press",
+        "ncbi.nlm.nih.gov"
+    ]
+
+    private static let maxDownloadSize = 50 * 1024 * 1024 // 50MB
+
+    private func executeDownloadPaper(arguments: String) async throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let urlString = args["url"] as? String,
+              let title = args["title"] as? String else {
+            return "{\"error\": \"Missing required parameters: url and title\"}"
+        }
+
+        guard let url = URL(string: urlString),
+              let host = url.host?.lowercased(),
+              url.scheme == "https" || url.scheme == "http" else {
+            return "{\"error\": \"Invalid URL.\"}"
+        }
+
+        // Validate domain
+        let isAllowed = Self.allowedDownloadDomains.contains(where: { domain in
+            host == domain || host.hasSuffix(".\(domain)")
+        })
+        guard isAllowed else {
+            return "{\"error\": \"Downloads are only allowed from academic sources (arxiv.org, semanticscholar.org, openreview.net, etc). Domain '\(host)' is not allowed.\"}"
+        }
+
+        log.debug("Downloading paper: \(title) from \(urlString)")
+
+        // Download
+        let (data, response) = try await URLSession.shared.data(from: url)
+
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            return "{\"error\": \"Download failed with HTTP \(httpResponse.statusCode).\"}"
+        }
+
+        guard data.count <= Self.maxDownloadSize else {
+            return "{\"error\": \"File is too large (\(data.count / 1024 / 1024)MB). Maximum is 50MB.\"}"
+        }
+
+        // Write to temp file
+        let tempDir = FileManager.default.temporaryDirectory
+        let sanitizedTitle = title
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let tempFile = tempDir.appendingPathComponent("\(sanitizedTitle).pdf")
+        try data.write(to: tempFile)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        // Import into library
+        let document = try LibraryStore.importDocument(from: tempFile, modelContext: modelContext)
+
+        // Set the title to the paper title instead of the filename
+        document.title = title
+        try modelContext.save()
+
+        // Handle optional collection
+        let collectionName = args["collection_name"] as? String
+        if let collectionName, collectionName.isEmpty == false {
+            let collectionDescriptor = FetchDescriptor<DocumentCollection>()
+            let collections = try modelContext.fetch(collectionDescriptor)
+            let collection = collections.first(where: {
+                $0.name.lowercased() == collectionName.lowercased()
+            }) ?? {
+                let newCollection = DocumentCollection(name: collectionName)
+                modelContext.insert(newCollection)
+                return newCollection
+            }()
+            collection.addDocument(document.id)
+            try modelContext.save()
+        }
+
+        // Trigger RAG ingestion in background, passing the API key to avoid Keychain prompts
+        let docForIngestion = document
+        let fileURL = try LibraryStore.fileURL(for: docForIngestion)
+        let ingestionKey = apiKey
+        Task.detached {
+            await RAGIngestionManager.shared.enqueue(document: docForIngestion, fileURL: fileURL, apiKey: ingestionKey)
+        }
+
+        log.debug("Imported paper: \(document.id) - \(title)")
+
+        var result: [String: Any] = [
+            "success": true,
+            "document_id": document.id.uuidString,
+            "title": title
+        ]
+        if let collectionName, collectionName.isEmpty == false {
+            result["added_to_collection"] = collectionName
+        }
+
+        let resultData = try JSONSerialization.data(withJSONObject: result, options: [.sortedKeys])
+        return String(data: resultData, encoding: .utf8) ?? "{}"
+    }
+
+    private func executeAddToCollection(arguments: String) throws -> String {
+        guard let args = try? JSONSerialization.jsonObject(with: Data(arguments.utf8)) as? [String: Any],
+              let docIDString = args["document_id"] as? String,
+              let docID = UUID(uuidString: docIDString),
+              let collectionName = args["collection_name"] as? String else {
+            return "{\"error\": \"Missing required parameters: document_id and collection_name\"}"
+        }
+
+        // Verify document exists
+        let docDescriptor = FetchDescriptor<LibraryDocument>()
+        let allDocs = try modelContext.fetch(docDescriptor)
+        guard allDocs.contains(where: { $0.id == docID }) else {
+            return "{\"error\": \"Document with ID \(docIDString) not found.\"}"
+        }
+
+        let collectionDescriptor = FetchDescriptor<DocumentCollection>()
+        let collections = try modelContext.fetch(collectionDescriptor)
+        let collection = collections.first(where: {
+            $0.name.lowercased() == collectionName.lowercased()
+        }) ?? {
+            let newCollection = DocumentCollection(name: collectionName)
+            modelContext.insert(newCollection)
+            return newCollection
+        }()
+
+        collection.addDocument(docID)
+        try modelContext.save()
+
+        log.debug("Added \(docIDString) to collection '\(collectionName)'")
+        return "{\"success\": true, \"collection_id\": \"\(collection.id.uuidString)\", \"collection_name\": \"\(collection.name)\"}"
     }
 
     // MARK: - Helpers

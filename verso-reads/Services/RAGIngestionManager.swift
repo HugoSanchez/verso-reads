@@ -53,6 +53,47 @@ actor RAGIngestionManager {
         }
     }
 
+    func enqueue(document: LibraryDocument, fileURL: URL, apiKey: String) async {
+        await updateStatus(isIndexing: true, errorMessage: nil, documentID: document.id)
+
+        do {
+            let signature = try fileSignature(for: fileURL)
+            if let existing = try await store.documentSignature(for: document.id), existing == signature {
+                await updateStatus(isIndexing: false, errorMessage: nil, documentID: document.id)
+                return
+            }
+
+            try await store.upsertDocument(document, signature: signature)
+            try await store.clearEmbeddings(for: document.id)
+
+            let pages = try await MainActor.run {
+                try RAGTextExtractor.extractPages(from: fileURL)
+            }
+            let chunks = RAGChunker.chunk(pages: pages)
+
+            guard chunks.isEmpty == false else {
+                await updateStatus(isIndexing: false, errorMessage: "No extractable text found.", documentID: document.id)
+                return
+            }
+
+            let embeddings = try await embedChunks(chunks, apiKey: apiKey)
+            for (chunk, embeddingJSON) in embeddings {
+                try await store.insertEmbedding(
+                    documentID: document.id,
+                    chunkIndex: chunk.chunkIndex,
+                    pageStart: chunk.pageStart,
+                    pageEnd: chunk.pageEnd,
+                    text: chunk.text,
+                    embeddingJSON: embeddingJSON
+                )
+            }
+
+            await updateStatus(isIndexing: false, errorMessage: nil, documentID: document.id)
+        } catch {
+            await updateStatus(isIndexing: false, errorMessage: error.localizedDescription, documentID: document.id)
+        }
+    }
+
     func ensureIndexed(document: LibraryDocument, fileURL: URL) async {
         await enqueue(document: document, fileURL: fileURL)
     }

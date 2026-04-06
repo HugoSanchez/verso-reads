@@ -265,6 +265,7 @@ struct OpenAIClient {
         case functionCallStarted(callId: String, name: String, index: Int)
         case functionCallArgumentsDelta(index: Int, delta: String)
         case functionCallArgumentsDone(index: Int, arguments: String)
+        case hostedToolCompleted(name: String)
         case responseCompleted(responseId: String)
         case error(Error)
         case done
@@ -391,14 +392,23 @@ struct OpenAIClient {
             }
 
         case "response.output_item.added":
-            if let item = object["item"] as? [String: Any],
-               item["type"] as? String == "function_call" {
-                let callId = item["call_id"] as? String ?? ""
-                let name = item["name"] as? String ?? ""
-                let index = object["output_index"] as? Int ?? 0
-                sseLog("Function call started: \(name) (call_id: \(callId), index: \(index))")
-                return .functionCallStarted(callId: callId, name: name, index: index)
+            if let item = object["item"] as? [String: Any] {
+                let itemType = item["type"] as? String ?? ""
+                if itemType == "function_call" {
+                    let callId = item["call_id"] as? String ?? ""
+                    let name = item["name"] as? String ?? ""
+                    let index = object["output_index"] as? Int ?? 0
+                    sseLog("Function call started: \(name) (call_id: \(callId), index: \(index))")
+                    return .functionCallStarted(callId: callId, name: name, index: index)
+                } else if itemType == "web_search_call" {
+                    sseLog("Web search started")
+                    return .functionCallStarted(callId: "__web_search__", name: "web_search", index: -1)
+                }
             }
+
+        case "response.web_search_call.completed":
+            sseLog("Web search completed")
+            return .hostedToolCompleted(name: "web_search")
 
         case "response.function_call_arguments.delta":
             let index = object["output_index"] as? Int ?? 0
