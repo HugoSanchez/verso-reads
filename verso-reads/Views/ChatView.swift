@@ -26,7 +26,7 @@ struct ChatView: View {
     @State private var toolStatus: String?
     @State private var activeTask: Task<Void, Never>?
 
-    private let historyLimit: Int = 50
+    // Token-based compression replaces the old fixed historyLimit
 
     var body: some View {
         VStack(spacing: 0) {
@@ -195,7 +195,11 @@ struct ChatView: View {
                     userPrompt = trimmed
                 }
 
-                let conversation = buildConversationMessages(from: historyMessages, userPrompt: userPrompt)
+                let conversation = await ConversationCompressor.buildConversation(
+                    from: historyMessages,
+                    userPrompt: userPrompt,
+                    client: client
+                )
                 let documentTitle = activeDocument?.title ?? "Unknown Document"
 
                 let currentSession = readerSession
@@ -395,18 +399,7 @@ struct ChatView: View {
         .padding(.bottom, 12)
     }
 
-    private func buildConversationMessages(from history: [ChatMessage], userPrompt: String) -> [OpenAIClient.Message] {
-        let trimmedHistory = history
-            .filter { $0.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }
-            .suffix(historyLimit)
-        let mapped = trimmedHistory.map { message -> OpenAIClient.Message in
-            OpenAIClient.Message(
-                role: message.role == .user ? "user" : "assistant",
-                content: message.content
-            )
-        }
-        return mapped + [OpenAIClient.Message(role: "user", content: userPrompt)]
-    }
+    // Conversation building is now handled by ConversationCompressor
 
     @MainActor
     private func persistMessage(_ message: ChatMessage) {
