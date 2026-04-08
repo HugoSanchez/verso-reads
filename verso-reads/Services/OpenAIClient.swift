@@ -359,7 +359,8 @@ struct OpenAIClient {
         var body: [String: Any] = [
             "model": model,
             "stream": true,
-            "tools": tools
+            "tools": tools,
+            "store": true
         ]
 
         if let prevId = previousResponseId, let results = toolResults {

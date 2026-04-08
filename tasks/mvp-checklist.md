@@ -1,9 +1,9 @@
 # MVP Checklist
 
 ## Essential for MVP
-- [ ] Remove document from collection (can add but not remove)
-- [ ] Delete highlights
-- [ ] "Highlights" sidebar item functionality
+- [x] Remove document from collection (can add but not remove)
+- [x] Delete highlights
+- [x] "Highlights" sidebar item functionality
 - [ ] Onboarding/empty states (new user experience, API key setup)
 - [ ] Error handling (AI request failures)
 - [ ] Basic keyboard shortcuts (Cmd+O to open, etc.)
