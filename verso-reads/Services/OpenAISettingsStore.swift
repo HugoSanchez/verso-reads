@@ -12,31 +12,26 @@ final class OpenAISettingsStore: ObservableObject {
     @Published var model: String = "gpt-5.2-mini"
     @Published var statusMessage: String?
 
-    private let keychainService: String
-    private let keychainAccount = "openai-api-key"
+    private let apiKeyDefaultsKey = "openai.api-key"
     private let modelDefaultsKey = "openai.model"
+    private let migratedDefaultsKey = "openai.migrated-from-keychain"
     private var statusClearTask: Task<Void, Never>?
-
-    init(service: String? = nil) {
-        let bundleID = Bundle.main.bundleIdentifier ?? "verso-reads"
-        self.keychainService = service ?? "\(bundleID).openai"
-    }
 
     var hasAPIKey: Bool {
         apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     func load() {
-        // In development, check environment variable or .env file first to avoid Keychain password prompts
+        // In development, check environment variable or .env file first
         if let devKey = OpenAISettingsStore.devAPIKey() {
             apiKey = devKey
         } else {
-            do {
-                if let storedKey = try KeychainStore.read(service: keychainService, account: keychainAccount) {
-                    apiKey = storedKey
-                }
-            } catch {
-                statusMessage = "Could not read API key."
+            // Migrate from Keychain on first run (so existing users don't lose their key)
+            migrateFromKeychainIfNeeded()
+
+            if let storedKey = UserDefaults.standard.string(forKey: apiKeyDefaultsKey),
+               storedKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                apiKey = storedKey
             }
         }
 
@@ -55,18 +50,31 @@ final class OpenAISettingsStore: ObservableObject {
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        do {
-            if trimmedKey.isEmpty {
-                try KeychainStore.delete(service: keychainService, account: keychainAccount)
-            } else {
-                try KeychainStore.save(trimmedKey, service: keychainService, account: keychainAccount)
-            }
-            UserDefaults.standard.set(trimmedModel.isEmpty ? "gpt-5.2-mini" : trimmedModel, forKey: modelDefaultsKey)
-            model = trimmedModel.isEmpty ? "gpt-5.2-mini" : trimmedModel
-            statusMessage = "Saved."
-            scheduleStatusClearIfNeeded()
-        } catch {
-            statusMessage = "Unable to save key."
+        if trimmedKey.isEmpty {
+            UserDefaults.standard.removeObject(forKey: apiKeyDefaultsKey)
+        } else {
+            UserDefaults.standard.set(trimmedKey, forKey: apiKeyDefaultsKey)
+        }
+        UserDefaults.standard.set(trimmedModel.isEmpty ? "gpt-5.2-mini" : trimmedModel, forKey: modelDefaultsKey)
+        model = trimmedModel.isEmpty ? "gpt-5.2-mini" : trimmedModel
+
+        statusMessage = "Saved."
+        scheduleStatusClearIfNeeded()
+    }
+
+    /// One-time migration: copy the API key from Keychain to UserDefaults, then delete the Keychain entry.
+    private func migrateFromKeychainIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: migratedDefaultsKey) == false else { return }
+        UserDefaults.standard.set(true, forKey: migratedDefaultsKey)
+
+        let bundleID = Bundle.main.bundleIdentifier ?? "verso-reads"
+        let service = "\(bundleID).openai"
+        let account = "openai-api-key"
+
+        if let keychainKey = try? KeychainStore.read(service: service, account: account),
+           keychainKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            UserDefaults.standard.set(keychainKey, forKey: apiKeyDefaultsKey)
+            try? KeychainStore.delete(service: service, account: account)
         }
     }
 
@@ -96,6 +104,16 @@ final class OpenAISettingsStore: ObservableObject {
         }
         #endif
 
+        return nil
+    }
+
+    /// Read the API key directly from UserDefaults (for use outside the settings store, e.g. RAG ingestion).
+    static func storedAPIKey() -> String? {
+        if let devKey = devAPIKey() { return devKey }
+        if let key = UserDefaults.standard.string(forKey: "openai.api-key"),
+           key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return key
+        }
         return nil
     }
 

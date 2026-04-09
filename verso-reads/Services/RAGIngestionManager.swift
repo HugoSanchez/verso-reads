@@ -137,22 +137,12 @@ actor RAGIngestionManager {
 
     private func loadAPIKey() async throws -> String {
         // Check env var / .env file first (avoids Keychain prompts during development)
-        if let devKey = await OpenAISettingsStore.devAPIKey() {
-            return devKey
+        if let key = await OpenAISettingsStore.storedAPIKey() {
+            return key
         }
-
-        return try await MainActor.run {
-            let bundleID = Bundle.main.bundleIdentifier ?? "verso-reads"
-            let service = "\(bundleID).openai"
-            let account = "openai-api-key"
-            if let key = try KeychainStore.read(service: service, account: account),
-               key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-                return key
-            }
-            throw NSError(domain: "RAG", code: 401, userInfo: [
-                NSLocalizedDescriptionKey: "Missing OpenAI API key."
-            ])
-        }
+        throw NSError(domain: "RAG", code: 401, userInfo: [
+            NSLocalizedDescriptionKey: "Missing OpenAI API key."
+        ])
     }
 
     private func updateStatus(isIndexing: Bool, errorMessage: String?, documentID: UUID) async {

@@ -40,26 +40,40 @@ struct ChatView: View {
     }
 
     private var chatContent: some View {
-        VStack(spacing: 0) {
-            if let preview = pinnedPreview {
-                pinnedPreviewCard(preview)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-            }
-
-            ChatWebView(
-                messages: messages,
-                streamingMessageID: streamingMessageID,
-                toolStatus: toolStatus,
-                isSending: isSending,
-                onPinClick: { messageID in
-                    if let message = messages.first(where: { $0.id == messageID }) {
-                        pinAnswer(message)
-                    }
+        ChatWebView(
+            messages: displayMessages,
+            streamingMessageID: streamingMessageID,
+            toolStatus: toolStatus,
+            isSending: isSending,
+            pinnedPreview: pinnedPreview,
+            onPinClick: { messageID in
+                if let message = messages.first(where: { $0.id == messageID }) {
+                    pinAnswer(message)
                 }
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            },
+            onDismissPin: { pinnedPreview = nil }
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Messages with pinned Q&A prepended when active
+    private var displayMessages: [ChatMessage] {
+        guard let preview = pinnedPreview else { return messages }
+        var result: [ChatMessage] = []
+        if let userText = preview.userText, userText.isEmpty == false {
+            result.append(ChatMessage(
+                id: preview.id,
+                role: .user,
+                content: userText
+            ))
         }
+        result.append(ChatMessage(
+            id: preview.assistantMessageID,
+            role: .assistant,
+            content: preview.assistantText
+        ))
+        result.append(contentsOf: messages)
+        return result
     }
 
     private var chatInput: some View {
@@ -147,7 +161,16 @@ struct ChatView: View {
         guard trimmed.isEmpty == false else { return }
         guard settings.hasAPIKey else { return }
 
-        let historyMessages = messages
+        var historyMessages = messages
+        // Prepend pinned Q&A so the LLM has context for follow-up questions
+        if let preview = pinnedPreview {
+            var pinContext: [ChatMessage] = []
+            if let userText = preview.userText, userText.isEmpty == false {
+                pinContext.append(ChatMessage(role: .user, content: userText))
+            }
+            pinContext.append(ChatMessage(role: .assistant, content: preview.assistantText))
+            historyMessages = pinContext + historyMessages
+        }
         let selectionAnchor = context?.anchorData
         let selectionText = context?.text
 #if DEBUG
@@ -357,46 +380,6 @@ struct ChatView: View {
         } catch {
             print("Failed to save chat pin: \(error)")
         }
-    }
-
-    @ViewBuilder
-    private func pinnedPreviewCard(_ preview: PinnedChatPreview) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 6, height: 6)
-                Text("Pinned")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.black.opacity(0.4))
-                Spacer()
-                Button(action: { pinnedPreview = nil }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.35))
-                }
-                .buttonStyle(.plain)
-            }
-
-            if let userText = preview.userText, userText.isEmpty == false {
-                Text(userText)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.black.opacity(0.55))
-                    .lineLimit(2)
-            }
-
-            Text(preview.assistantText)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.black.opacity(0.7))
-                .lineLimit(4)
-                .padding(.leading, 8)
-                .overlay(alignment: .leading) {
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.4))
-                        .frame(width: 2)
-                }
-        }
-        .padding(.bottom, 12)
     }
 
     // Conversation building is now handled by ConversationCompressor

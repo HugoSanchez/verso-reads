@@ -53,7 +53,6 @@ struct SidebarView: View {
                     }
                 }
 
-                SidebarRow(icon: "highlighter", label: "Highlights")
             }
 
             VStack(alignment: .leading, spacing: 6) {
