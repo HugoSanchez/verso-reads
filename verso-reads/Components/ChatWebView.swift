@@ -11,10 +11,12 @@ struct ChatWebView: NSViewRepresentable {
     let streamingMessageID: UUID?
     let toolStatus: String?
     let isSending: Bool
+    let pinnedPreview: PinnedChatPreview?
     let onPinClick: (UUID) -> Void
+    let onDismissPin: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onPinClick: onPinClick)
+        Coordinator(onPinClick: onPinClick, onDismissPin: onDismissPin)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -48,6 +50,24 @@ struct ChatWebView: NSViewRepresentable {
             return
         }
 
+        // Track which messages are pinned
+        var newPinnedIDs: Set<UUID> = []
+        if let preview = pinnedPreview {
+            newPinnedIDs.insert(preview.id)
+            newPinnedIDs.insert(preview.assistantMessageID)
+        }
+
+        // If pin state changed, reset the webview to re-render all messages
+        if newPinnedIDs != coordinator.lastPinnedIDs {
+            coordinator.lastPinnedIDs = newPinnedIDs
+            coordinator.pinnedMessageIDs = newPinnedIDs
+            coordinator.renderedMessageCount = 0
+            coordinator.lastDeltaLength.removeAll()
+            coordinator.lastThinkingState = nil
+            let js = "window.VersoChatClear && window.VersoChatClear();"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
         coordinator.syncMessages(messages, streamingID: streamingMessageID, in: webView)
         coordinator.syncToolStatus(toolStatus, in: webView)
         coordinator.syncThinking(isSending, in: webView)
@@ -58,6 +78,7 @@ struct ChatWebView: NSViewRepresentable {
         var isReady = false
         weak var webView: WKWebView?
         private let onPinClick: (UUID) -> Void
+        private let onDismissPin: () -> Void
 
         // Pending state before ready
         var pendingMessages: [ChatMessage]?
@@ -66,12 +87,17 @@ struct ChatWebView: NSViewRepresentable {
         var pendingThinking: Bool?
 
         // Tracking what's been sent to JS
-        private var renderedMessageCount = 0
-        private var lastDeltaLength: [UUID: Int] = [:]
-        private var lastThinkingState: Bool?
+        var renderedMessageCount = 0
+        var lastDeltaLength: [UUID: Int] = [:]
+        var lastThinkingState: Bool?
 
-        init(onPinClick: @escaping (UUID) -> Void) {
+        /// IDs of messages that are part of the pinned preview (rendered with pin badge)
+        var pinnedMessageIDs: Set<UUID> = []
+        var lastPinnedIDs: Set<UUID> = []
+
+        init(onPinClick: @escaping (UUID) -> Void, onDismissPin: @escaping () -> Void) {
             self.onPinClick = onPinClick
+            self.onDismissPin = onDismissPin
         }
 
         func syncMessages(_ messages: [ChatMessage], streamingID: UUID?, in webView: WKWebView) {
@@ -91,9 +117,10 @@ struct ChatWebView: NSViewRepresentable {
                 }
 
                 // New message — add it
+                let isPinned = pinnedMessageIDs.contains(message.id)
                 if message.id == streamingID {
                     // Streaming message: send as empty, deltas will fill it
-                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: "", in: webView)
+                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: "", isPinned: isPinned, in: webView)
                     lastDeltaLength[message.id] = 0
                     // Send any existing content as a delta
                     if message.content.isEmpty == false {
@@ -101,7 +128,7 @@ struct ChatWebView: NSViewRepresentable {
                         lastDeltaLength[message.id] = message.content.count
                     }
                 } else {
-                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: message.content, in: webView)
+                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: message.content, isPinned: isPinned, in: webView)
                 }
                 renderedMessageCount = index + 1
             }
@@ -133,8 +160,8 @@ struct ChatWebView: NSViewRepresentable {
 
         // MARK: - JS Bridge Calls
 
-        private func addMessage(_ id: UUID, role: String, content: String, in webView: WKWebView) {
-            let js = "window.VersoChatAddMessage && window.VersoChatAddMessage(\"\(id.uuidString)\", \"\(role)\", \"\(escapeForJS(content))\");"
+        private func addMessage(_ id: UUID, role: String, content: String, isPinned: Bool = false, in webView: WKWebView) {
+            let js = "window.VersoChatAddMessage && window.VersoChatAddMessage(\"\(id.uuidString)\", \"\(role)\", \"\(escapeForJS(content))\", \(isPinned));"
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
@@ -208,6 +235,11 @@ struct ChatWebView: NSViewRepresentable {
                     DispatchQueue.main.async {
                         self.onPinClick(messageId)
                     }
+                }
+
+            case "dismiss-pin":
+                DispatchQueue.main.async {
+                    self.onDismissPin()
                 }
 
             default:

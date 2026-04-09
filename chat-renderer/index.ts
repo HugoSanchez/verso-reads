@@ -3,7 +3,7 @@ import { marked } from "marked";
 declare global {
   interface Window {
     VersoChatInit?: () => void;
-    VersoChatAddMessage?: (id: string, role: string, content: string) => void;
+    VersoChatAddMessage?: (id: string, role: string, content: string, isPinned?: boolean) => void;
     VersoChatAppendDelta?: (id: string, delta: string) => void;
     VersoChatFinalizeMessage?: (id: string, canPin: boolean) => void;
     VersoChatSetToolStatus?: (status: string | null) => void;
@@ -20,9 +20,13 @@ declare global {
 // Raw markdown buffers for streaming messages
 const buffers = new Map<string, string>();
 
-// Pending render state — coalesce rapid deltas into one rAF
+// Cache for rendered stable (completed) blocks — avoids re-parsing old content
+const stableHtmlCache = new Map<string, string>();
+const stableTextCache = new Map<string, string>();
+
+// Pending render state — debounce rapid deltas (~80ms) to avoid DOM thrashing
 const dirtyIds = new Set<string>();
-let rafScheduled = false;
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 const postMessage = (payload: Record<string, unknown>) => {
   if (window.webkit?.messageHandlers?.chat) {
@@ -32,7 +36,7 @@ const postMessage = (payload: Record<string, unknown>) => {
 
 // Configure marked for clean output
 marked.setOptions({
-  breaks: true,
+  breaks: false,
   gfm: true,
 });
 
@@ -49,8 +53,15 @@ function renderMarkdown(text: string): string {
   return marked.parse(text, { async: false }) as string;
 }
 
+function splitStableTail(text: string): [string, string] {
+  // Find the last double-newline boundary — everything before it is "stable"
+  // (complete blocks that won't change), everything after is the in-progress tail
+  const lastBreak = text.lastIndexOf("\n\n");
+  if (lastBreak === -1) return ["", text];
+  return [text.slice(0, lastBreak + 2), text.slice(lastBreak + 2)];
+}
+
 function flushDirty() {
-  rafScheduled = false;
   for (const id of dirtyIds) {
     const buffer = buffers.get(id);
     if (!buffer) continue;
@@ -61,8 +72,29 @@ function flushDirty() {
     if (!wrapper) continue;
 
     const contentDiv = wrapper.querySelector(".message-content") as HTMLElement;
-    if (contentDiv) {
-      contentDiv.innerHTML = renderMarkdown(buffer);
+    if (!contentDiv) continue;
+
+    const [stableText, tail] = splitStableTail(buffer);
+
+    // Only re-render stable portion if it grew since last time
+    const prevStable = stableTextCache.get(id) ?? "";
+    if (stableText !== prevStable) {
+      stableHtmlCache.set(id, renderMarkdown(stableText));
+      stableTextCache.set(id, stableText);
+    }
+
+    const stableHtml = stableHtmlCache.get(id) ?? "";
+
+    // Stable blocks as rendered HTML + tail as plain text span
+    if (tail) {
+      const escapedTail = tail
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      contentDiv.innerHTML =
+        stableHtml + `<span class="streaming-tail">${escapedTail}</span>`;
+    } else {
+      contentDiv.innerHTML = stableHtml;
     }
   }
   dirtyIds.clear();
@@ -71,9 +103,11 @@ function flushDirty() {
 
 function scheduleDirtyRender(id: string) {
   dirtyIds.add(id);
-  if (!rafScheduled) {
-    rafScheduled = true;
-    requestAnimationFrame(flushDirty);
+  if (debounceTimer === null) {
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      requestAnimationFrame(flushDirty);
+    }, 80);
   }
 }
 
@@ -157,7 +191,7 @@ window.VersoChatInit = () => {
   postMessage({ type: "ready" });
 };
 
-window.VersoChatAddMessage = (id: string, role: string, content: string) => {
+window.VersoChatAddMessage = (id: string, role: string, content: string, isPinned?: boolean) => {
   const container = getContainer();
 
   // Remove empty state if present
@@ -168,6 +202,26 @@ window.VersoChatAddMessage = (id: string, role: string, content: string) => {
   if (container.querySelector(`[data-id="${id}"]`)) return;
 
   const el = createMessageElement(id, role, content);
+
+  // Add pinned badge for pinned messages
+  if (isPinned) {
+    el.classList.add("message-pinned");
+    // Add badge to the first pinned message (user question)
+    if (role === "user") {
+      const badge = document.createElement("div");
+      badge.className = "pin-badge";
+      badge.innerHTML = `<span class="pin-badge-dot"></span> Pinned`;
+      const dismiss = document.createElement("span");
+      dismiss.className = "pin-badge-dismiss";
+      dismiss.textContent = "×";
+      dismiss.addEventListener("click", (e) => {
+        e.stopPropagation();
+        postMessage({ type: "dismiss-pin" });
+      });
+      badge.appendChild(dismiss);
+      el.insertBefore(badge, el.firstChild);
+    }
+  }
 
   container.appendChild(el);
   scrollToBottom();
@@ -222,6 +276,8 @@ window.VersoChatFinalizeMessage = (id: string, canPin: boolean) => {
       }
     }
     buffers.delete(id);
+    stableHtmlCache.delete(id);
+    stableTextCache.delete(id);
   }
 
   // Clean up from dirty set
@@ -259,4 +315,6 @@ window.VersoChatClear = () => {
   getContainer().innerHTML = "";
   buffers.clear();
   dirtyIds.clear();
+  stableHtmlCache.clear();
+  stableTextCache.clear();
 };

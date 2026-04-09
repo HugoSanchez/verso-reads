@@ -201,7 +201,8 @@ final class PDFReaderController: NSObject, ObservableObject {
             return
         }
         guard let selection = pdfView.currentSelection,
-              let text = selection.string?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let rawText = selection.string,
+              case let text = PDFReaderController.cleanPDFText(rawText),
               text.isEmpty == false
         else {
             selectionInfo = nil
@@ -260,7 +261,7 @@ final class PDFReaderController: NSObject, ObservableObject {
 
     private func makeHighlightAnchor(from selection: PDFSelection, document: PDFDocument?) -> (anchor: PDFHighlightAnchor, quote: String)? {
         guard let document else { return nil }
-        let quote = selection.string ?? ""
+        let quote = PDFReaderController.cleanPDFText(selection.string ?? "")
         let lineSelections = selection.selectionsByLine()
         let selections = lineSelections.isEmpty ? [selection] : lineSelections
 
@@ -297,6 +298,19 @@ final class PDFReaderController: NSObject, ObservableObject {
 
         guard fragments.isEmpty == false else { return nil }
         return (PDFHighlightAnchor(fragments: fragments), quote)
+    }
+
+    /// Clean up PDF-extracted text by rejoining hyphenated line breaks and
+    /// replacing hard line breaks (column-layout artifacts) with spaces.
+    private static func cleanPDFText(_ raw: String) -> String {
+        raw
+            // Rejoin hyphenated words split across lines: "ana-\nlogues" → "analogues"
+            .replacingOccurrences(of: "-\n", with: "")
+            // Replace remaining newlines with spaces
+            .replacingOccurrences(of: "\n", with: " ")
+            // Collapse multiple spaces
+            .replacingOccurrences(of: "  ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     struct SelectionInfo: Equatable {

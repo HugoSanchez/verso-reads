@@ -94,6 +94,17 @@
     .message-content li:last-child {
       margin-bottom: 0;
     }
+    .message-content li > ul, .message-content li > ol {
+      margin-top: 0.25em;
+      margin-bottom: 0.25em;
+      padding-left: 1.5em;
+    }
+    .message-content li > p {
+      margin-bottom: 0.3em;
+    }
+    .message-content li > p:last-child {
+      margin-bottom: 0;
+    }
     .message-content code {
       font-family: "SF Mono", Menlo, Consolas, monospace;
       font-size: 11px;
@@ -128,6 +139,51 @@
     }
     .message-content a:hover {
       text-decoration: underline;
+    }
+    .message-content .streaming-tail {
+      white-space: pre-wrap;
+    }
+
+    /* Pinned message styling */
+    .message-pinned .message-content {
+      border-left: 2px solid rgba(0, 122, 255, 0.4);
+      padding-left: 10px;
+    }
+    .message-pinned.message-user {
+      justify-content: flex-start;
+    }
+    .message-pinned.message-user .message-content {
+      background: none;
+      max-width: 100%;
+      color: rgba(0, 0, 0, 0.55);
+    }
+    .pin-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 500;
+      color: rgba(0, 0, 0, 0.4);
+      margin-bottom: 4px;
+    }
+    .pin-badge-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: rgba(0, 122, 255, 1);
+    }
+    .pin-badge-dismiss {
+      margin-left: auto;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: rgba(0, 0, 0, 0.35);
+      padding: 0 4px;
+      line-height: 1;
+    }
+    .pin-badge-dismiss:hover {
+      color: rgba(0, 0, 0, 0.6);
     }
 
     /* Pin button */

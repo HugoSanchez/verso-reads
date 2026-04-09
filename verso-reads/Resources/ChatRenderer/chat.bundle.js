@@ -2161,8 +2161,10 @@ ${text}</tr>
 
   // chat-renderer/index.ts
   var buffers = /* @__PURE__ */ new Map();
+  var stableHtmlCache = /* @__PURE__ */ new Map();
+  var stableTextCache = /* @__PURE__ */ new Map();
   var dirtyIds = /* @__PURE__ */ new Set();
-  var rafScheduled = false;
+  var debounceTimer = null;
   var postMessage = (payload) => {
     var _a2, _b;
     if ((_b = (_a2 = window.webkit) == null ? void 0 : _a2.messageHandlers) == null ? void 0 : _b.chat) {
@@ -2170,7 +2172,7 @@ ${text}</tr>
     }
   };
   marked.setOptions({
-    breaks: true,
+    breaks: false,
     gfm: true
   });
   function getContainer() {
@@ -2184,8 +2186,14 @@ ${text}</tr>
       return "";
     return marked.parse(text, { async: false });
   }
+  function splitStableTail(text) {
+    const lastBreak = text.lastIndexOf("\n\n");
+    if (lastBreak === -1)
+      return ["", text];
+    return [text.slice(0, lastBreak + 2), text.slice(lastBreak + 2)];
+  }
   function flushDirty() {
-    rafScheduled = false;
+    var _a2, _b;
     for (const id of dirtyIds) {
       const buffer = buffers.get(id);
       if (!buffer)
@@ -2196,8 +2204,20 @@ ${text}</tr>
       if (!wrapper)
         continue;
       const contentDiv = wrapper.querySelector(".message-content");
-      if (contentDiv) {
-        contentDiv.innerHTML = renderMarkdown(buffer);
+      if (!contentDiv)
+        continue;
+      const [stableText, tail] = splitStableTail(buffer);
+      const prevStable = (_a2 = stableTextCache.get(id)) != null ? _a2 : "";
+      if (stableText !== prevStable) {
+        stableHtmlCache.set(id, renderMarkdown(stableText));
+        stableTextCache.set(id, stableText);
+      }
+      const stableHtml = (_b = stableHtmlCache.get(id)) != null ? _b : "";
+      if (tail) {
+        const escapedTail = tail.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        contentDiv.innerHTML = stableHtml + `<span class="streaming-tail">${escapedTail}</span>`;
+      } else {
+        contentDiv.innerHTML = stableHtml;
       }
     }
     dirtyIds.clear();
@@ -2205,9 +2225,11 @@ ${text}</tr>
   }
   function scheduleDirtyRender(id) {
     dirtyIds.add(id);
-    if (!rafScheduled) {
-      rafScheduled = true;
-      requestAnimationFrame(flushDirty);
+    if (debounceTimer === null) {
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        requestAnimationFrame(flushDirty);
+      }, 80);
     }
   }
   function createMessageElement(id, role, content) {
@@ -2270,7 +2292,7 @@ ${text}</tr>
   window.VersoChatInit = () => {
     postMessage({ type: "ready" });
   };
-  window.VersoChatAddMessage = (id, role, content) => {
+  window.VersoChatAddMessage = (id, role, content, isPinned) => {
     const container = getContainer();
     const emptyState = container.querySelector(".empty-state");
     if (emptyState)
@@ -2278,6 +2300,23 @@ ${text}</tr>
     if (container.querySelector(`[data-id="${id}"]`))
       return;
     const el = createMessageElement(id, role, content);
+    if (isPinned) {
+      el.classList.add("message-pinned");
+      if (role === "user") {
+        const badge = document.createElement("div");
+        badge.className = "pin-badge";
+        badge.innerHTML = `<span class="pin-badge-dot"></span> Pinned`;
+        const dismiss = document.createElement("span");
+        dismiss.className = "pin-badge-dismiss";
+        dismiss.textContent = "\xD7";
+        dismiss.addEventListener("click", (e) => {
+          e.stopPropagation();
+          postMessage({ type: "dismiss-pin" });
+        });
+        badge.appendChild(dismiss);
+        el.insertBefore(badge, el.firstChild);
+      }
+    }
     container.appendChild(el);
     scrollToBottom();
   };
@@ -2323,6 +2362,8 @@ ${text}</tr>
         }
       }
       buffers.delete(id);
+      stableHtmlCache.delete(id);
+      stableTextCache.delete(id);
     }
     dirtyIds.delete(id);
     hideIndicator();
@@ -2353,5 +2394,7 @@ ${text}</tr>
     getContainer().innerHTML = "";
     buffers.clear();
     dirtyIds.clear();
+    stableHtmlCache.clear();
+    stableTextCache.clear();
   };
 })();
