@@ -41,27 +41,6 @@ struct ReaderToolbar: View {
                 Spacer()
 
                 HStack(spacing: 16) {
-                    Menu {
-                        ForEach(HighlightColor.allCases) { color in
-                            Button {
-                                highlightColor = color
-                                onHighlight(color)
-                            } label: {
-                                HStack(spacing: 8) {
-                                    Circle()
-                                        .fill(color.swatch)
-                                        .frame(width: 10, height: 10)
-                                    Text(color.label)
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "highlighter")
-                            .foregroundStyle(highlightColor.swatch.opacity(0.95))
-                    }
-                    Button(action: {}) {
-                        Image(systemName: "square.and.arrow.down")
-                    }
                     Button {
                         isZoomPopoverPresented.toggle()
                     } label: {

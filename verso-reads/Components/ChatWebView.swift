@@ -118,9 +118,10 @@ struct ChatWebView: NSViewRepresentable {
 
                 // New message — add it
                 let isPinned = pinnedMessageIDs.contains(message.id)
+                let quote = message.role == .user ? message.sourceSelectionText : nil
                 if message.id == streamingID {
                     // Streaming message: send as empty, deltas will fill it
-                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: "", isPinned: isPinned, in: webView)
+                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: "", isPinned: isPinned, selectionQuote: nil, in: webView)
                     lastDeltaLength[message.id] = 0
                     // Send any existing content as a delta
                     if message.content.isEmpty == false {
@@ -128,7 +129,7 @@ struct ChatWebView: NSViewRepresentable {
                         lastDeltaLength[message.id] = message.content.count
                     }
                 } else {
-                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: message.content, isPinned: isPinned, in: webView)
+                    addMessage(message.id, role: message.role == .user ? "user" : "assistant", content: message.content, isPinned: isPinned, selectionQuote: quote, in: webView)
                 }
                 renderedMessageCount = index + 1
             }
@@ -160,8 +161,9 @@ struct ChatWebView: NSViewRepresentable {
 
         // MARK: - JS Bridge Calls
 
-        private func addMessage(_ id: UUID, role: String, content: String, isPinned: Bool = false, in webView: WKWebView) {
-            let js = "window.VersoChatAddMessage && window.VersoChatAddMessage(\"\(id.uuidString)\", \"\(role)\", \"\(escapeForJS(content))\", \(isPinned));"
+        private func addMessage(_ id: UUID, role: String, content: String, isPinned: Bool = false, selectionQuote: String? = nil, in webView: WKWebView) {
+            let quoteArg = selectionQuote.map { "\"\(escapeForJS($0))\"" } ?? "null"
+            let js = "window.VersoChatAddMessage && window.VersoChatAddMessage(\"\(id.uuidString)\", \"\(role)\", \"\(escapeForJS(content))\", \(isPinned), \(quoteArg));"
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 

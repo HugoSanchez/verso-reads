@@ -79,23 +79,22 @@ struct ChatView: View {
     private var chatInput: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let context {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text("\(context.wordCount) words selected")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.black.opacity(0.7))
-                    Spacer()
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.white.opacity(0.75))
                     Button(action: { self.context = nil }) {
                         Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Color.black.opacity(0.5))
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.5))
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.vertical, 5)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.black.opacity(0.06))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.black.opacity(0.7))
                 )
             }
 
@@ -200,6 +199,7 @@ struct ChatView: View {
         streamingMessageID = assistantID
         inputText = ""
         inputHeight = 22
+        context = nil
         persistMessage(userMessage)
 
         let apiKey = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)

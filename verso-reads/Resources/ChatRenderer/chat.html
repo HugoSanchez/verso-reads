@@ -144,6 +144,35 @@
       white-space: pre-wrap;
     }
 
+    /* Collapsible selection chip inside user bubble */
+    .selection-chip {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 6px;
+      padding: 4px 8px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .selection-chip-label {
+      font-size: 10px;
+      font-weight: 500;
+      color: rgba(0, 0, 0, 0.4);
+    }
+    .selection-chip-body {
+      display: none;
+      margin-top: 4px;
+      font-size: 11px;
+      line-height: 1.45;
+      color: rgba(0, 0, 0, 0.55);
+      font-style: italic;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .selection-chip.expanded .selection-chip-body {
+      display: block;
+    }
+
     /* Pinned message styling */
     .message-pinned .message-content {
       border-left: 2px solid rgba(0, 122, 255, 0.4);
