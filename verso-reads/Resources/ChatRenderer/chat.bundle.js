@@ -2292,7 +2292,7 @@ ${text}</tr>
   window.VersoChatInit = () => {
     postMessage({ type: "ready" });
   };
-  window.VersoChatAddMessage = (id, role, content, isPinned) => {
+  window.VersoChatAddMessage = (id, role, content, isPinned, selectionQuote) => {
     const container = getContainer();
     const emptyState = container.querySelector(".empty-state");
     if (emptyState)
@@ -2300,6 +2300,26 @@ ${text}</tr>
     if (container.querySelector(`[data-id="${id}"]`))
       return;
     const el = createMessageElement(id, role, content);
+    if (selectionQuote && role === "user") {
+      const contentDiv = el.querySelector(".message-content");
+      if (contentDiv) {
+        const chip = document.createElement("div");
+        chip.className = "selection-chip";
+        const label = document.createElement("span");
+        label.className = "selection-chip-label";
+        const wordCount = selectionQuote.trim().split(/\s+/).length;
+        label.textContent = `${wordCount} words selected`;
+        const body = document.createElement("div");
+        body.className = "selection-chip-body";
+        body.textContent = selectionQuote;
+        chip.appendChild(label);
+        chip.appendChild(body);
+        chip.addEventListener("click", () => {
+          chip.classList.toggle("expanded");
+        });
+        contentDiv.insertBefore(chip, contentDiv.firstChild);
+      }
+    }
     if (isPinned) {
       el.classList.add("message-pinned");
       if (role === "user") {

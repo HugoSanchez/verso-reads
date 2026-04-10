@@ -3,7 +3,7 @@ import { marked } from "marked";
 declare global {
   interface Window {
     VersoChatInit?: () => void;
-    VersoChatAddMessage?: (id: string, role: string, content: string, isPinned?: boolean) => void;
+    VersoChatAddMessage?: (id: string, role: string, content: string, isPinned?: boolean, selectionQuote?: string | null) => void;
     VersoChatAppendDelta?: (id: string, delta: string) => void;
     VersoChatFinalizeMessage?: (id: string, canPin: boolean) => void;
     VersoChatSetToolStatus?: (status: string | null) => void;
@@ -191,7 +191,7 @@ window.VersoChatInit = () => {
   postMessage({ type: "ready" });
 };
 
-window.VersoChatAddMessage = (id: string, role: string, content: string, isPinned?: boolean) => {
+window.VersoChatAddMessage = (id: string, role: string, content: string, isPinned?: boolean, selectionQuote?: string | null) => {
   const container = getContainer();
 
   // Remove empty state if present
@@ -202,6 +202,32 @@ window.VersoChatAddMessage = (id: string, role: string, content: string, isPinne
   if (container.querySelector(`[data-id="${id}"]`)) return;
 
   const el = createMessageElement(id, role, content);
+
+  // Add collapsible selection quote inside user bubble
+  if (selectionQuote && role === "user") {
+    const contentDiv = el.querySelector(".message-content") as HTMLElement;
+    if (contentDiv) {
+      const chip = document.createElement("div");
+      chip.className = "selection-chip";
+
+      const label = document.createElement("span");
+      label.className = "selection-chip-label";
+      const wordCount = selectionQuote.trim().split(/\s+/).length;
+      label.textContent = `${wordCount} words selected`;
+
+      const body = document.createElement("div");
+      body.className = "selection-chip-body";
+      body.textContent = selectionQuote;
+
+      chip.appendChild(label);
+      chip.appendChild(body);
+      chip.addEventListener("click", () => {
+        chip.classList.toggle("expanded");
+      });
+
+      contentDiv.insertBefore(chip, contentDiv.firstChild);
+    }
+  }
 
   // Add pinned badge for pinned messages
   if (isPinned) {
