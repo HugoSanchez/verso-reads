@@ -2181,10 +2181,13 @@ ${text}</tr>
   function scrollToBottom() {
     window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
   }
+  function stripCitations(text) {
+    return text.replace(/\u2261(?:cite\u2261)?turn\d+search\d+\u2261/g, "");
+  }
   function renderMarkdown(text) {
     if (!text || text.trim() === "")
       return "";
-    return marked.parse(text, { async: false });
+    return marked.parse(stripCitations(text), { async: false });
   }
   function splitStableTail(text) {
     const lastBreak = text.lastIndexOf("\n\n");

@@ -269,7 +269,7 @@ struct ReaderCanvasView: View {
                     .frame(width: 1, height: 14)
 
                 selectionActionButton(
-                    title: "Add to notes",
+                    title: "Add to scratchpad",
                     systemImage: "note.text",
                     action: addSelectionToNotes
                 )

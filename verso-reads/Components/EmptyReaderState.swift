@@ -19,7 +19,7 @@ struct EmptyReaderState: View {
             Text("Drop a document to start reading")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color.black.opacity(0.85))
-            Text("We will keep your place, highlights, and notes in sync.")
+            Text("We will keep your place, highlights, and scratchpad in sync.")
                 .font(.system(size: 13))
                 .foregroundStyle(Color.black.opacity(0.45))
         }

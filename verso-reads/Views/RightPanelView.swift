@@ -14,6 +14,7 @@ struct RightPanelView: View {
     @Binding var activeDocument: LibraryDocument?
     @Binding var isRightPanelVisible: Bool
     let isSidebarVisible: Bool
+    var chatSessionManager: ChatSessionManager
 
     @AppStorage("ui.rightPanelWidth.sidebar") private var panelWidthWithSidebar: Double = 360
     @AppStorage("ui.rightPanelWidth.fullWidth") private var panelWidthFullWidth: Double = 400
@@ -41,7 +42,7 @@ struct RightPanelView: View {
 
                 VStack(spacing: 0) {
                     // Notes section
-                    PanelSectionHeader(title: "Notes")
+                    PanelSectionHeader(title: "Scratchpad")
 
                     NotepadView()
                         .frame(maxWidth: .infinity)
@@ -60,7 +61,13 @@ struct RightPanelView: View {
                     .background(isHoveringSplitHandle ? Color.black.opacity(0.06) : Color.clear)
 
                     // Chat section
-                    PanelSectionHeader(title: "Chat")
+                    ChatSectionHeader(
+                        sessionManager: chatSessionManager,
+                        onNavigate: { newMessages in
+                            messages = newMessages
+                            pinnedPreview = nil
+                        }
+                    )
 
                     ChatView(
                         context: $chatContext,
@@ -68,7 +75,8 @@ struct RightPanelView: View {
                         settings: settings,
                         pinnedPreview: $pinnedPreview,
                         activeDocument: $activeDocument,
-                        showInput: chatHeight > 120
+                        showInput: chatHeight > 120,
+                        chatSessionManager: chatSessionManager
                     )
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity)
@@ -99,6 +107,73 @@ struct RightPanelView: View {
             panelWidthWithSidebar = min(max(panelWidthWithSidebar, minPanelWidth), maxPanelWidth)
             panelWidthFullWidth = min(max(panelWidthFullWidth, minPanelWidth), maxPanelWidth)
         }
+    }
+}
+
+// MARK: - Chat Section Header with Navigation
+
+private struct ChatSectionHeader: View {
+    var sessionManager: ChatSessionManager
+    let onNavigate: ([ChatMessage]) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Chat")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.black.opacity(0.5))
+
+            Spacer()
+
+            if sessionManager.totalSessions > 1 {
+                Text(sessionManager.counterText)
+                    .font(.system(size: 10, weight: .regular))
+                    .foregroundStyle(Color.black.opacity(0.3))
+                    .monospacedDigit()
+            }
+
+            HStack(spacing: 2) {
+                Button(action: {
+                    let msgs = sessionManager.goBack()
+                    onNavigate(msgs)
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(sessionManager.canGoBack ? Color.black.opacity(0.45) : Color.black.opacity(0.15))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!sessionManager.canGoBack)
+
+                Button(action: {
+                    let msgs = sessionManager.goForward()
+                    onNavigate(msgs)
+                }) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(sessionManager.canGoForward ? Color.black.opacity(0.45) : Color.black.opacity(0.15))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!sessionManager.canGoForward)
+
+                Button(action: {
+                    let msgs = sessionManager.startNewSession()
+                    onNavigate(msgs)
+                }) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Color.black.opacity(0.45))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 28)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
 
@@ -373,7 +448,8 @@ private struct RightPanelResizeHandle: NSViewRepresentable {
             pinnedPreview: .constant(nil),
             activeDocument: .constant(nil),
             isRightPanelVisible: .constant(true),
-            isSidebarVisible: true
+            isSidebarVisible: true,
+            chatSessionManager: ChatSessionManager()
         )
     }
     .frame(width: 800, height: 600)

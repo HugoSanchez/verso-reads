@@ -292,7 +292,15 @@ struct PDFKitView: NSViewRepresentable {
             let markerSize: CGFloat = 14
             let margin: CGFloat = 6
             let gap: CGFloat = 10
-            let horizontalOffset: CGFloat = 18 // Offset to the right of pins
+
+            // Only offset horizontally if a pin marker already exists nearby
+            let hasOverlappingPin = pdfAnnotationsByPinID.values.contains { pinAnnotation in
+                guard pinAnnotation.page == page else { return false }
+                let pinCenter = CGPoint(x: pinAnnotation.bounds.midX, y: pinAnnotation.bounds.midY)
+                let markerCenter = CGPoint(x: unionRect.maxX + gap + markerSize / 2, y: unionRect.midY)
+                return abs(pinCenter.y - markerCenter.y) < markerSize
+            }
+            let horizontalOffset: CGFloat = hasOverlappingPin ? 18 : 0
 
             var x = unionRect.maxX + gap + horizontalOffset
             if x + markerSize > pageBounds.maxX - margin {

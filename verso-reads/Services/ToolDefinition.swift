@@ -89,7 +89,7 @@ enum AgentTools {
 
     static let readNotes = ToolDefinition(
         name: "read_notes",
-        description: "Fetch the user's notepad content for the current document. Returns the plain text content of their notes.",
+        description: "Fetch the user's scratchpad content for the current document. Returns the plain text content of their scratchpad.",
         parameters: [
             "type": "object",
             "properties": [String: Any](),
@@ -154,13 +154,13 @@ enum AgentTools {
 
     static let createNote = ToolDefinition(
         name: "create_note",
-        description: "Create a new note for the current document. Only works if no note exists yet — if one already exists, use append_to_note instead.",
+        description: "Create a new scratchpad entry for the current document. Only works if no content exists yet — if it already exists, use append_to_note instead.",
         parameters: [
             "type": "object",
             "properties": [
                 "text": [
                     "type": "string",
-                    "description": "The text content to write as the note"
+                    "description": "The text content to write to the scratchpad"
                 ]
             ],
             "required": ["text"],
@@ -170,13 +170,13 @@ enum AgentTools {
 
     static let appendToNote = ToolDefinition(
         name: "append_to_note",
-        description: "Append text to the end of the user's existing notes for this document. Creates the note if it doesn't exist yet. Use this to add summaries, key points, or any content the user asks you to note down.",
+        description: "Append text to the end of the user's scratchpad for this document. Creates the scratchpad if it doesn't exist yet. Use this to add summaries, key points, or any content the user asks you to jot down.",
         parameters: [
             "type": "object",
             "properties": [
                 "text": [
                     "type": "string",
-                    "description": "The text content to append to the notes"
+                    "description": "The text content to append to the scratchpad"
                 ]
             ],
             "required": ["text"],

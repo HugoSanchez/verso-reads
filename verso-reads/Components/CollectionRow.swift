@@ -7,20 +7,23 @@ import SwiftUI
 
 struct DocumentCollectionRow: View {
     let collection: DocumentCollection
+    let isExpanded: Bool
     let onTap: () -> Void
     let onDelete: () -> Void
     let onDocumentDropped: (UUID) -> Void
 
     @State private var isHovering = false
     @State private var isTargeted = false
-    @State private var isConfirmingDelete = false
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "folder")
-                .font(.system(size: 11))
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(Color.black.opacity(0.3))
                 .frame(width: 16)
+                .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .animation(.easeInOut(duration: 0.15), value: isExpanded)
 
             Text(collection.name)
                 .font(.system(size: 13, weight: .regular))
@@ -28,29 +31,6 @@ struct DocumentCollectionRow: View {
                 .truncationMode(.tail)
 
             Spacer(minLength: 4)
-
-            if isHovering {
-                if isConfirmingDelete {
-                    Button {
-                        isConfirmingDelete = false
-                        onDelete()
-                    } label: {
-                        Text("Confirm")
-                            .font(.system(size: 11, weight: .light))
-                            .foregroundStyle(Color.red.opacity(0.75))
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button {
-                        isConfirmingDelete = true
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12))
-                            .foregroundStyle(Color.black.opacity(0.35))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
         }
         .foregroundStyle(Color.black.opacity(0.65))
         .padding(.vertical, 6)
@@ -62,9 +42,19 @@ struct DocumentCollectionRow: View {
         }
         .onHover { hovering in
             isHovering = hovering
-            if hovering == false {
-                isConfirmingDelete = false
+        }
+        .contextMenu {
+            Button("Delete Collection") {
+                showDeleteConfirmation = true
             }
+        }
+        .alert("Delete Collection", isPresented: $showDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                onDelete()
+            }
+        } message: {
+            Text("This will delete the collection \"\(collection.name)\" and remove all its contents. Are you sure?")
         }
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -99,6 +89,7 @@ struct DocumentCollectionRow: View {
                 let c = DocumentCollection(name: "Work")
                 return c
             }(),
+            isExpanded: false,
             onTap: {},
             onDelete: {},
             onDocumentDropped: { _ in }
@@ -108,11 +99,12 @@ struct DocumentCollectionRow: View {
                 let c = DocumentCollection(name: "Research Papers")
                 return c
             }(),
+            isExpanded: true,
             onTap: {},
             onDelete: {},
             onDocumentDropped: { _ in }
         )
     }
     .padding()
-    .frame(width: 220)
+    .frame(width: 240)
 }

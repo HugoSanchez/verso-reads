@@ -124,5 +124,5 @@ struct LibraryDocumentRow: View {
         LibraryDocumentRow(documentID: UUID(), title: "In Collection (no icon)", isActive: false, showIcon: false, onOpen: {}, onDelete: {})
     }
     .padding()
-    .frame(width: 220)
+    .frame(width: 240)
 }
