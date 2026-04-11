@@ -10,6 +10,7 @@
 		0B41D9072F49AAEF002C46B8 /* Down in Frameworks */ = {isa = PBXBuildFile; productRef = 09B7122A067F948435C61BA4 /* Down */; };
 		0B41D9102F49B10002C46B8 /* verso-reads/Resources/NotesEditor in Resources */ = {isa = PBXBuildFile; fileRef = 0B41D9112F49B10002C46B8 /* verso-reads/Resources/NotesEditor */; };
 		0B41DA002F4DC00002C46B8 /* verso-reads/Resources/ChatRenderer in Resources */ = {isa = PBXBuildFile; fileRef = 0B41DA012F4DC00002C46B8 /* verso-reads/Resources/ChatRenderer */; };
+		0B70E3CA2F89CB3200CD9283 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0B70E3C92F89CB3200CD9283 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0B41D9072F49AAEF002C46B8 /* Down in Frameworks */,
+				0B70E3CA2F89CB3200CD9283 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,6 +87,7 @@
 			name = "verso-reads";
 			packageProductDependencies = (
 				09B7122A067F948435C61BA4 /* Down */,
+				0B70E3C92F89CB3200CD9283 /* Sparkle */,
 			);
 			productName = "verso-reads";
 			productReference = 0B41D58D2F3DF7A0002C46B8 /* verso-reads.app */;
@@ -116,6 +119,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A287BEACF10510852AC6D9FD /* XCRemoteSwiftPackageReference "Down" */,
+				0B70E3C82F89CB3200CD9283 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0B41D58E2F3DF7A0002C46B8 /* Products */;
@@ -296,6 +300,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "verso-reads/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -337,6 +342,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "verso-reads/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -379,6 +385,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		0B70E3C82F89CB3200CD9283 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.9.1;
+			};
+		};
 		A287BEACF10510852AC6D9FD /* XCRemoteSwiftPackageReference "Down" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/johnxnguyen/Down";
@@ -394,6 +408,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A287BEACF10510852AC6D9FD /* XCRemoteSwiftPackageReference "Down" */;
 			productName = Down;
+		};
+		0B70E3C92F89CB3200CD9283 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0B70E3C82F89CB3200CD9283 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

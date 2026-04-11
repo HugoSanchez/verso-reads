@@ -32,8 +32,9 @@ struct ContentView: View {
     @State private var isSidebarVisible: Bool = true
     @StateObject private var readerSession = ReaderSession()
     @StateObject private var toastManager = ToastManager()
+    @State private var chatSessionManager = ChatSessionManager()
 
-    private let sidebarWidth: CGFloat = 220
+    private let sidebarWidth: CGFloat = 270
     private var sidebarInset: CGFloat { isSidebarVisible ? sidebarWidth : 0 }
 
     var body: some View {
@@ -68,7 +69,7 @@ struct ContentView: View {
             ToastOverlayView()
         }
         .ignoresSafeArea()
-        .background(.ultraThinMaterial)
+        .background(Color(nsColor: NSColor(white: 0.94, alpha: 1.0)))
         .environmentObject(readerSession)
         .environmentObject(toastManager)
         .simultaneousGesture(
@@ -82,6 +83,7 @@ struct ContentView: View {
             readerSession.isRightPanelVisible = isVisible
         }
         .task {
+            chatSessionManager.attach(modelContext: modelContext)
             restoreLastDocumentIfNeeded()
             openAISettings.load()
             readerSession.isRightPanelVisible = isRightPanelVisible
@@ -116,7 +118,8 @@ struct ContentView: View {
                     pinnedPreview: $pinnedPreview,
                     activeDocument: $activeDocument,
                     isRightPanelVisible: $isRightPanelVisible,
-                    isSidebarVisible: isSidebarVisible
+                    isSidebarVisible: isSidebarVisible,
+                    chatSessionManager: chatSessionManager
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -131,7 +134,7 @@ struct ContentView: View {
             topTrailingRadius: 0
         )
         .fill(Color.white)
-        .shadow(color: Color.black.opacity(0.1), radius: 6, x: -2, y: 0)
+        .shadow(color: Color.black.opacity(0.04), radius: 3, x: -1, y: 0)
     }
 
     private func restoreLastDocumentIfNeeded() {
@@ -153,9 +156,9 @@ struct ContentView: View {
             document.lastOpenedAt = Date()
             try modelContext.save()
             chatContext = nil
-            chatMessages = []
             pinnedPreview = nil
             mainPanel = .reader
+            chatMessages = chatSessionManager.loadDocument(document.id)
             Task {
                 await RAGIngestionManager.shared.ensureIndexed(document: document, fileURL: url)
             }
@@ -173,6 +176,7 @@ struct ContentView: View {
         pinnedPreview = nil
         isRightPanelVisible = false
         mainPanel = .reader
+        chatSessionManager.clear()
     }
 
     private func deleteDocument(_ document: LibraryDocument) {
@@ -263,6 +267,6 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
-        .modelContainer(for: [LibraryDocument.self, Annotation.self, DocumentNote.self, ChatMessageRecord.self], inMemory: true)
+        .modelContainer(for: [LibraryDocument.self, Annotation.self, DocumentNote.self, ChatMessageRecord.self, ChatSession.self], inMemory: true)
         .frame(width: 1200, height: 760)
 }

@@ -23,7 +23,7 @@ struct HighlightEditPopover: View {
 
             separator
 
-            actionButton(title: "Add to notes", systemImage: "note.text", action: onAddToNotes)
+            actionButton(title: "Add to scratchpad", systemImage: "note.text", action: onAddToNotes)
 
             separator
 

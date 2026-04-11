@@ -12,6 +12,7 @@ struct ChatWebView: NSViewRepresentable {
     let toolStatus: String?
     let isSending: Bool
     let pinnedPreview: PinnedChatPreview?
+    let sessionID: UUID?
     let onPinClick: (UUID) -> Void
     let onDismissPin: () -> Void
 
@@ -68,6 +69,16 @@ struct ChatWebView: NSViewRepresentable {
             webView.evaluateJavaScript(js, completionHandler: nil)
         }
 
+        // Detect session change
+        if sessionID != coordinator.lastSessionID {
+            coordinator.lastSessionID = sessionID
+            coordinator.renderedMessageCount = 0
+            coordinator.lastDeltaLength.removeAll()
+            coordinator.lastThinkingState = nil
+            let js = "window.VersoChatClear && window.VersoChatClear();"
+            webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
         coordinator.syncMessages(messages, streamingID: streamingMessageID, in: webView)
         coordinator.syncToolStatus(toolStatus, in: webView)
         coordinator.syncThinking(isSending, in: webView)
@@ -94,6 +105,7 @@ struct ChatWebView: NSViewRepresentable {
         /// IDs of messages that are part of the pinned preview (rendered with pin badge)
         var pinnedMessageIDs: Set<UUID> = []
         var lastPinnedIDs: Set<UUID> = []
+        var lastSessionID: UUID?
 
         init(onPinClick: @escaping (UUID) -> Void, onDismissPin: @escaping () -> Void) {
             self.onPinClick = onPinClick

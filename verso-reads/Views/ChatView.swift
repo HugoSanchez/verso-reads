@@ -17,6 +17,7 @@ struct ChatView: View {
     @Binding var pinnedPreview: PinnedChatPreview?
     @Binding var activeDocument: LibraryDocument?
     var showInput: Bool = true
+    var chatSessionManager: ChatSessionManager?
 
     @State private var inputText: String = ""
     @State private var isSending = false
@@ -46,6 +47,7 @@ struct ChatView: View {
             toolStatus: toolStatus,
             isSending: isSending,
             pinnedPreview: pinnedPreview,
+            sessionID: chatSessionManager?.currentSession?.id,
             onPinClick: { messageID in
                 if let message = messages.first(where: { $0.id == messageID }) {
                     pinAnswer(message)
@@ -303,13 +305,13 @@ struct ChatView: View {
         switch toolName {
         case "search_document": return "Searching document..."
         case "read_highlights": return "Reading highlights..."
-        case "read_notes": return "Reading notes..."
+        case "read_notes": return "Reading scratchpad..."
         case "get_document_info": return "Reading document info..."
         case "get_current_page": return "Checking current page..."
         case "get_page_text": return "Reading page text..."
         case "navigate_to_page": return "Navigating..."
-        case "create_note": return "Writing note..."
-        case "append_to_note": return "Adding to notes..."
+        case "create_note": return "Writing to scratchpad..."
+        case "append_to_note": return "Adding to scratchpad..."
         case "create_highlight": return "Highlighting..."
         case "delete_highlight": return "Removing highlight..."
         case "update_highlight": return "Updating highlight..."
@@ -387,38 +389,37 @@ struct ChatView: View {
     @MainActor
     private func persistMessage(_ message: ChatMessage) {
         guard let documentID = activeDocument?.id else { return }
-        let record = ChatMessageRecord(
-            id: message.id,
-            documentID: documentID,
-            role: message.role,
-            content: message.content
-        )
-        modelContext.insert(record)
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to save chat message: \(error)")
+        if let manager = chatSessionManager {
+            manager.persistMessage(message, documentID: documentID)
+        } else {
+            let record = ChatMessageRecord(
+                id: message.id,
+                documentID: documentID,
+                role: message.role,
+                content: message.content
+            )
+            modelContext.insert(record)
+            try? modelContext.save()
         }
     }
 
     @MainActor
     private func persistAssistantMessageIfNeeded(id: UUID) {
         guard let documentID = activeDocument?.id else { return }
-        guard let message = messages.first(where: { $0.id == id }) else { return }
-        let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false else { return }
-
-        let record = ChatMessageRecord(
-            id: message.id,
-            documentID: documentID,
-            role: message.role,
-            content: message.content
-        )
-        modelContext.insert(record)
-        do {
-            try modelContext.save()
-        } catch {
-            print("Failed to save assistant message: \(error)")
+        if let manager = chatSessionManager {
+            manager.persistAssistantMessage(id: id, documentID: documentID, messages: messages)
+        } else {
+            guard let message = messages.first(where: { $0.id == id }) else { return }
+            let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.isEmpty == false else { return }
+            let record = ChatMessageRecord(
+                id: message.id,
+                documentID: documentID,
+                role: message.role,
+                content: message.content
+            )
+            modelContext.insert(record)
+            try? modelContext.save()
         }
     }
 
@@ -601,7 +602,8 @@ private struct AutoGrowingTextView: NSViewRepresentable {
         messages: .constant([]),
         settings: OpenAISettingsStore(),
         pinnedPreview: .constant(nil),
-        activeDocument: .constant(nil)
+        activeDocument: .constant(nil),
+        chatSessionManager: ChatSessionManager()
     )
         .environmentObject(ToastManager())
         .frame(width: 340, height: 300)

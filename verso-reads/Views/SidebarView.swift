@@ -80,6 +80,7 @@ struct SidebarView: View {
                     VStack(alignment: .leading, spacing: 0) {
                         DocumentCollectionRow(
                             collection: collection,
+                            isExpanded: expandedCollectionIDs.contains(collection.id),
                             onTap: { toggleCollection(collection.id) },
                             onDelete: { deleteCollection(collection) },
                             onDocumentDropped: { documentID in
@@ -109,8 +110,8 @@ struct SidebarView: View {
 
                 if isCreatingCollection {
                     HStack(spacing: 10) {
-                        Image(systemName: "folder")
-                            .font(.system(size: 11))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(Color.black.opacity(0.3))
                             .frame(width: 16)
 
@@ -147,7 +148,7 @@ struct SidebarView: View {
         .padding(.top, 52)
         .padding(.horizontal, 16)
         .padding(.bottom, 20)
-        .frame(width: 220, alignment: .topLeading)
+        .frame(width: 270, alignment: .topLeading)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color.white.opacity(0.55))
     }

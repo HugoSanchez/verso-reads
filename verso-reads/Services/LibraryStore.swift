@@ -94,6 +94,15 @@ enum LibraryStore {
             modelContext.delete(message)
         }
 
+        let sessionPredicate = #Predicate<ChatSession> { session in
+            session.documentID == docID
+        }
+        let sessionDescriptor = FetchDescriptor<ChatSession>(predicate: sessionPredicate)
+        let sessions = try modelContext.fetch(sessionDescriptor)
+        for session in sessions {
+            modelContext.delete(session)
+        }
+
         // Remove document from all collections
         let collectionDescriptor = FetchDescriptor<DocumentCollection>()
         let collections = try modelContext.fetch(collectionDescriptor)

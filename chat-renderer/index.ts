@@ -48,9 +48,14 @@ function scrollToBottom() {
   window.scrollTo({ top: document.body.scrollHeight, behavior: "instant" });
 }
 
+function stripCitations(text: string): string {
+  // Remove OpenAI-style citation markers like ≡cite≡turn2search5≡ or ≡turn2search7≡
+  return text.replace(/\u2261(?:cite\u2261)?turn\d+search\d+\u2261/g, "");
+}
+
 function renderMarkdown(text: string): string {
   if (!text || text.trim() === "") return "";
-  return marked.parse(text, { async: false }) as string;
+  return marked.parse(stripCitations(text), { async: false }) as string;
 }
 
 function splitStableTail(text: string): [string, string] {

@@ -7,18 +7,30 @@
 
 import SwiftUI
 import SwiftData
+import Sparkle
 
 @main
 struct verso_readsApp: App {
+    private let updaterController = SPUStandardUpdaterController(
+        startingUpdater: true,
+        updaterDelegate: nil,
+        userDriverDelegate: nil
+    )
+
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .modelContainer(for: [LibraryDocument.self, Annotation.self, DocumentNote.self, ChatMessageRecord.self, DocumentCollection.self])
+                .modelContainer(for: [LibraryDocument.self, Annotation.self, DocumentNote.self, ChatMessageRecord.self, DocumentCollection.self, ChatSession.self])
                 .onAppear {
                     configureWindow()
                 }
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
+        }
     }
 
     private func configureWindow() {
